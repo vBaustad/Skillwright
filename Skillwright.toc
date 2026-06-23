@@ -9,6 +9,7 @@
 ## X-Category: Professions
 ## X-Website: https://github.com/vBaustad/Skillwright
 ## X-License: MIT
+## X-Curse-Project-ID: 1585659
 
 Core\Core.lua
 Core\Engine.lua
