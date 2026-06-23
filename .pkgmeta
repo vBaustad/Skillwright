@@ -1,0 +1,14 @@
+package-as: Skillwright
+
+enable-nolib-creation: no
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - ".github"
+  - ".gitignore"
+  - ".pkgmeta"
+  - "README.md"
+  - "*.png"

@@ -1,0 +1,51 @@
+-- Enchanting 1-300 craft path (WoW Classic Era).
+-- Factual craft data from public leveling guides; item IDs best-effort (spot-check in-game).
+-- Enchanting mats come from DISENCHANTING green/blue gear, not vendors. You also need an
+-- Enchanting rod (craft the next rod as your skill allows) to apply enchants.
+local ADDON, SW = ...
+
+-- mat entry = { name, totalForStep, itemId }
+SW.RegisterPath("Enchanting", {
+    { from = 1, to = 2, qty = 1, recipe = "Runed Copper Rod", item = 6218, note = "Your starter rod. Disenchant green/blue items to gather dust, essences, and shards for every step below; you cannot buy these from a vendor.",
+        mats = { { "Copper Rod", 1, 6217 }, { "Strange Dust", 1, 10940 }, { "Lesser Magic Essence", 1, 10938 } } },
+    { from = 2, to = 50, qty = 48, recipe = "Enchant Bracer - Minor Health",
+        mats = { { "Strange Dust", 48, 10940 } } },
+    { from = 50, to = 90, qty = 40, recipe = "Enchant Bracer - Minor Health", note = "At skill 75 learn Journeyman Enchanting (requires character level 10) from an Expert trainer before continuing.",
+        mats = { { "Strange Dust", 40, 10940 } } },
+    { from = 90, to = 100, qty = 10, recipe = "Enchant Bracer - Minor Stamina",
+        mats = { { "Strange Dust", 30, 10940 } } },
+    { from = 100, to = 101, qty = 1, recipe = "Runed Silver Rod", item = 6339,
+        mats = { { "Silver Rod", 1, 6338 }, { "Strange Dust", 6, 10940 }, { "Greater Magic Essence", 3, 10939 }, { "Shadowgem", 1, 5500 } } },
+    { from = 101, to = 110, qty = 9, recipe = "Greater Magic Wand", item = 11288,
+        mats = { { "Simple Wood", 9, 4470 }, { "Greater Magic Essence", 9, 10939 } } },
+    { from = 110, to = 135, qty = 25, recipe = "Enchant Cloak - Minor Agility", note = "At skill 125 learn Expert Enchanting (requires character level 20).",
+        mats = { { "Lesser Astral Essence", 25, 10998 } } },
+    { from = 135, to = 155, qty = 20, recipe = "Enchant Bracer - Lesser Stamina",
+        mats = { { "Soul Dust", 40, 11083 } } },
+    { from = 155, to = 156, qty = 1, recipe = "Runed Golden Rod", item = 11130,
+        mats = { { "Golden Rod", 1, 11128 }, { "Iridescent Pearl", 1, 5500 }, { "Greater Astral Essence", 2, 11082 }, { "Soul Dust", 2, 11083 } } },
+    { from = 156, to = 185, qty = 40, recipe = "Enchant Bracer - Lesser Strength",
+        mats = { { "Soul Dust", 80, 11083 } } },
+    { from = 185, to = 200, qty = 15, recipe = "Enchant Bracer - Strength",
+        mats = { { "Vision Dust", 15, 11137 } } },
+    { from = 200, to = 201, qty = 1, recipe = "Runed Truesilver Rod", item = 11145, note = "At skill 200 learn Artisan Enchanting (requires character level 35) before crafting this rod and beyond.",
+        mats = { { "Truesilver Rod", 1, 11144 }, { "Black Pearl", 1, 7971 }, { "Greater Mystic Essence", 2, 11135 }, { "Vision Dust", 2, 11137 } } },
+    { from = 201, to = 220, qty = 35, recipe = "Enchant Bracer - Strength",
+        mats = { { "Vision Dust", 35, 11137 } } },
+    { from = 220, to = 225, qty = 5, recipe = "Enchant Cloak - Greater Defense",
+        mats = { { "Vision Dust", 15, 11137 } } },
+    { from = 225, to = 230, qty = 5, recipe = "Enchant Gloves - Agility",
+        mats = { { "Lesser Nether Essence", 5, 11174 }, { "Vision Dust", 5, 11137 } } },
+    { from = 230, to = 235, qty = 5, recipe = "Enchant Boots - Stamina",
+        mats = { { "Vision Dust", 25, 11137 } } },
+    { from = 235, to = 250, qty = 25, recipe = "Enchant Chest - Superior Health",
+        mats = { { "Vision Dust", 150, 11137 } } },
+    { from = 250, to = 265, qty = 20, recipe = "Lesser Mana Oil", item = 20747,
+        mats = { { "Dream Dust", 60, 11176 }, { "Purple Lotus", 40, 8831 }, { "Crystal Vial", 20, 8925 } } },
+    { from = 265, to = 294, qty = 30, recipe = "Enchant Shield - Greater Stamina",
+        mats = { { "Dream Dust", 300, 11176 } } },
+    { from = 294, to = 295, qty = 1, recipe = "Runed Arcanite Rod", item = 16207,
+        mats = { { "Arcanite Rod", 1, 11128 }, { "Golden Pearl", 1, 13926 }, { "Illusion Dust", 10, 16204 }, { "Greater Eternal Essence", 4, 16203 }, { "Small Brilliant Shard", 4, 14343 }, { "Large Brilliant Shard", 2, 14344 } } },
+    { from = 295, to = 300, qty = 5, recipe = "Enchant Cloak - Superior Defense",
+        mats = { { "Illusion Dust", 40, 16204 } } },
+})

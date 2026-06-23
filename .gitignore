@@ -1,0 +1,12 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+
+# WoW saved variables (live in WTF, not the addon folder — never commit)
+*.lua.bak
+SavedVariables/

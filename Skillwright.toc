@@ -1,0 +1,30 @@
+## Interface: 11508
+## Title: Skillwright
+## Notes: Profession leveling helper - the optimal craft path to max skill, with a live shopping list.
+## Author: vebjorn
+## Version: 1.0.0
+## SavedVariables: SkillwrightDB
+## SavedVariablesPerCharacter: SkillwrightCharDB
+## IconTexture: Interface\AddOns\Skillwright\emblem
+## X-Category: Professions
+## X-Website: https://github.com/vBaustad/Skillwright
+## X-License: MIT
+
+Core\Core.lua
+Core\Engine.lua
+UI\Window.lua
+UI\Options.lua
+UI\Dashboard.lua
+
+Data\Alchemy.lua
+Data\Blacksmithing.lua
+Data\Cooking.lua
+Data\Enchanting.lua
+Data\Engineering.lua
+Data\First Aid.lua
+Data\Fishing.lua
+Data\Herbalism.lua
+Data\Leatherworking.lua
+Data\Mining.lua
+Data\Skinning.lua
+Data\Tailoring.lua
