@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+
+- Fixed `Bindings.xml` being listed in the .toc, which spammed XML warnings on load and stopped
+  the key bindings from registering. They now load correctly (Esc → Key Bindings → Skillwright).
+
 ## 1.1.0
 
 **Guild Market (GuildFoundMarket integration)** — for realms without an Auction House.

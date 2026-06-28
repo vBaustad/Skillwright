@@ -1,8 +1,8 @@
 <Bindings>
-    <Binding name="SKILLWRIGHT_DASHBOARD" header="SKILLWRIGHT">
+    <Binding name="SKILLWRIGHT_DASHBOARD" header="SKILLWRIGHT" category="ADDONS">
         SkillwrightToggleDashboard()
     </Binding>
-    <Binding name="SKILLWRIGHT_GUIDE">
+    <Binding name="SKILLWRIGHT_GUIDE" category="ADDONS">
         SkillwrightToggleGuide()
     </Binding>
 </Bindings>

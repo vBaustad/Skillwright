@@ -2,7 +2,7 @@
 ## Title: Skillwright
 ## Notes: Profession leveling helper - the optimal craft path to max skill, with a live shopping list.
 ## Author: vebjorn
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariables: SkillwrightDB
 ## SavedVariablesPerCharacter: SkillwrightCharDB
 ## OptionalDeps: GuildFoundMarket
@@ -11,8 +11,6 @@
 ## X-Website: https://github.com/vBaustad/Skillwright
 ## X-License: MIT
 ## X-Curse-Project-ID: 1585659
-
-Bindings.xml
 
 Core\Core.lua
 Core\Engine.lua
