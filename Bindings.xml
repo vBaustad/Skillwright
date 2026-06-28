@@ -1,0 +1,8 @@
+<Bindings>
+    <Binding name="SKILLWRIGHT_DASHBOARD" header="SKILLWRIGHT">
+        SkillwrightToggleDashboard()
+    </Binding>
+    <Binding name="SKILLWRIGHT_GUIDE">
+        SkillwrightToggleGuide()
+    </Binding>
+</Bindings>

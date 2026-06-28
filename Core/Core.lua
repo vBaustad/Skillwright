@@ -4,6 +4,12 @@ local ADDON, SW = ...
 
 SW.version = GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version") or "0.4.0"
 
+-- Key Bindings UI labels (Esc -> Key Bindings -> Skillwright). The bindings themselves live in
+-- Bindings.xml and call the SkillwrightToggle* globals defined in the UI files.
+BINDING_HEADER_SKILLWRIGHT = "Skillwright"
+BINDING_NAME_SKILLWRIGHT_DASHBOARD = "Toggle dashboard"
+BINDING_NAME_SKILLWRIGHT_GUIDE = "Toggle guide window"
+
 -- [professionName] = { { from, to, qty, recipe, vendorPattern?, mats={ {name, total, itemId}, ... } }, ... }
 SW.PATHS = {}
 function SW.RegisterPath(profession, steps) SW.PATHS[profession] = steps end
@@ -20,11 +26,15 @@ function SW.HasGuide(profession) return SW.PATHS[profession] ~= nil or SW.ROUTES
 -- the Steps and Shopping views into "1-75 do this, 75-150 do this" sections.
 SW.TIERS = { { 1, 75, "Apprentice" }, { 75, 150, "Journeyman" }, { 150, 225, "Expert" }, { 225, 300, "Artisan" } }
 
--- Mats you can simply buy from a profession supplier (threads, dyes, salt). Used to
--- split "farm this" from "just buy this" and to power the vendor buy calculation.
+-- Mats you can simply buy from a profession supplier (threads, dyes, vials, flux, salt).
+-- Used to split "farm this" from "just buy this" and to power the vendor buy calculation.
 SW.VENDOR_MATS = {
     [2320] = true, [2321] = true, [4291] = true, [8343] = true, [14341] = true, -- threads
-    [2604] = true, [2871] = true,                                               -- dyes (gray, black)
+    [2604] = true, [2605] = true, [2871] = true, [4341] = true,                 -- dyes (gray, green, black, red)
+    [6260] = true, [6261] = true,                                               -- dyes (blue, orange)
+    [2324] = true,                                                              -- Bleach
+    [3372] = true, [3371] = true, [8925] = true,                                -- vials (empty, leaded, crystal)
+    [2880] = true,                                                             -- Weak Flux
     [2692] = true,                                                              -- salt
     [159]  = true,                                                              -- Refreshing Spring Water (cooking)
 }

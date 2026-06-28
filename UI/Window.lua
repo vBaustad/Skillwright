@@ -68,6 +68,13 @@ local function MakeIcon(content, i)
         if self._id then pcall(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self._id) end
         GameTooltip:AddLine(("Have %d  /  Need %d"):format(self._have or 0, self._req or 0), 1, 1, 1)
         if (self._bank or 0) > 0 then GameTooltip:AddLine(("(%d of those are in your bank)"):format(self._bank), 0.5, 0.65, 1) end
+        if SW.GuildMarket and self._id and SW.GuildMarket.IsFresh(self._id) then
+            local price, qty, seller = SW.GuildMarket.Get(self._id)
+            if price then
+                GameTooltip:AddLine(("Guild market: %dx @ %s (%s)"):format(
+                    qty or 0, GetCoinTextureString and GetCoinTextureString(price) or (price .. "c"), seller or "?"), 0.4, 0.8, 1)
+            end
+        end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -153,6 +160,13 @@ local function MakeMatRow(content, i)
         if self._id then pcall(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self._id) end
         GameTooltip:AddLine(("Have %d  /  Need %d"):format(self._have or 0, self._req or 0), 1, 1, 1)
         if (self._bank or 0) > 0 then GameTooltip:AddLine(("(%d of those are in your bank)"):format(self._bank), 0.5, 0.65, 1) end
+        if SW.GuildMarket and self._id and SW.GuildMarket.IsFresh(self._id) then
+            local price, qty, seller = SW.GuildMarket.Get(self._id)
+            if price then
+                GameTooltip:AddLine(("Guild market: %dx @ %s (%s)"):format(
+                    qty or 0, GetCoinTextureString and GetCoinTextureString(price) or (price .. "c"), seller or "?"), 0.4, 0.8, 1)
+            end
+        end
         GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function(self)
@@ -305,15 +319,42 @@ local function BuildWindow()
     content.buyBtn:SetScript("OnClick", function() SW.BuyNeededMats() end)
     content.buyBtn:SetScript("OnEnter", function(self) SW.BuyButtonTooltip(self) end)
     content.buyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Guild-market price line + "check" button (GuildFoundMarket bridge).
+    content.gpFS = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    content.gpFS:SetWidth(266); content.gpFS:SetJustifyH("LEFT")
+    content.gpBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    content.gpBtn:SetSize(150, 22)
+    content.gpBtn:SetScript("OnClick", function() SW.CheckGuildPrices() end)
+    content.gpBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Check guild prices", 1, 0.85, 0.2)
+        GameTooltip:AddLine("Asks GuildFoundMarket what guildmates are selling these mats for.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    content.gpBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     content.craftBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     content.craftBtn:SetSize(104, 22)
     content.craftBtn:SetScript("OnClick", function() SW.CraftCurrent() end)
     content.trainBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     content.trainBtn:SetSize(160, 22)
     content.trainBtn:SetScript("OnClick", function() SW.TrainNeeded(ActiveProfession()) end)
+    -- Shopping tab: guild-market cost estimate for the farmed mats left to 300.
+    content.costBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    content.costBtn:SetSize(150, 22)
+    content.costBtn:SetScript("OnClick", function() SW.EstimateCost() end)
+    content.costBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Estimate cost to 300", 1, 0.85, 0.2)
+        GameTooltip:AddLine("Prices the farmed mats left to max using guildmates' GuildFoundMarket listings. Asks a few at a time.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    content.costBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    content.costFS = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall"); content.costFS:SetJustifyH("LEFT")
     content.buyFS:Hide(); content.buyBtn:Hide(); content.craftBtn:Hide(); content.trainBtn:Hide()
+    content.gpFS:Hide(); content.gpBtn:Hide(); content.costBtn:Hide(); content.costFS:Hide()
 
     tinsert(UISpecialFrames, "SkillwrightFrame")
+    f:HookScript("OnHide", function() if SW.HideGuildBuy then SW.HideGuildBuy() end end)
     win = f
     SW.RegisterWindow(f)
     SW.ApplyWindowSettings()
@@ -326,11 +367,18 @@ local function HideGroups()
     win.content.bigFS:Hide(); win.content.subFS:Hide(); win.content.bigHit:Hide()
     win.content.noteBox:Hide(); win.content.upBox:Hide()
     win.content.buyFS:Hide(); win.content.bankFS:Hide(); win.content.buyBtn:Hide(); win.content.craftBtn:Hide(); win.content.trainBtn:Hide()
+    win.content.gpFS:Hide(); win.content.gpBtn:Hide()
+    win.content.costBtn:Hide(); win.content.costFS:Hide()
     for _, b in ipairs(win.content.icons) do b:Hide() end
     for _, r in ipairs(win.content.stepRows) do r:Hide() end
     for _, r in ipairs(win.content.matRows) do r:Hide() end
     for _, r in ipairs(win.content.tierHeaders) do r:Hide() end
     for _, r in ipairs(win.content.routeRows) do r:Hide() end
+    local ov = win.content.ov
+    if ov then
+        for _, w in ipairs(ov.widgets) do w:Hide() end
+        for _, r in ipairs(ov.roadRows) do r:Hide() end
+    end
 end
 
 -- ----- vendor buy support (used by the Now view when a merchant is open) -----
@@ -365,6 +413,7 @@ function SW.CraftCurrent()
     local stopAt = plan.step.to
     if GetTradeSkillLine then local _, _, mr = GetTradeSkillLine(); if mr and mr < stopAt then stopAt = mr end end
     win.craftStopAt = stopAt
+    win.craftRecipe = plan.step.recipe   -- only auto-stop while THIS recipe is what's cooking
     DoTradeSkill(idx, n)
 end
 
@@ -420,6 +469,45 @@ function SW.BuyButtonTooltip(btn)
     end
     GameTooltip:AddLine(("Enough to craft %d now."):format((plan and plan.craftableNow) or 0), 0.5, 0.5, 0.5)
     GameTooltip:Show()
+end
+
+-- Ask GuildFoundMarket what guildmates are selling this step's farmed mats for, and open the
+-- results side panel. Vendor mats (thread/dye/salt/vials) are skipped - you just buy those
+-- from a supplier. Runs from the button click (a hardware event), which the channel requires.
+function SW.CheckGuildPrices()
+    local plan = win and win.plan
+    if not (plan and plan.mats and SW.GuildMarket) then return end
+    local ids = {}
+    for _, e in ipairs(plan.mats) do
+        if not SW.IsVendorMat(e.id) then ids[#ids + 1] = e.id end
+    end
+    if #ids == 0 then SW.msg("this step only needs vendor-bought mats - grab those from a supplier."); return end
+    if SW.ShowGuildBuy then SW.ShowGuildBuy(ids) end
+    SW.GuildMarket.onUpdate = function()
+        if SW.RefreshGuildBuy then SW.RefreshGuildBuy() end
+        if win and win:IsShown() then SW.Refresh() end   -- mat tooltips pick up fresh prices
+    end
+    local ok, info = SW.GuildMarket.Query(ids)
+    if ok then SW.msg(("checking guild prices for %d mat(s)..."):format(tonumber(info) or 0))
+    else SW.msg(tostring(info)) end
+end
+
+-- Shopping tab: price the farmed mats left to 300 via the guild market. Only asks for mats we
+-- don't already have a fresh price for (so repeat clicks fill in the rest, a batch at a time).
+function SW.EstimateCost()
+    if not (win and SW.GuildMarket and win.shopFarmed) then return end
+    local toAsk = {}
+    for _, id in ipairs(win.shopFarmed) do
+        if not SW.GuildMarket.IsFresh(id) then toAsk[#toAsk + 1] = id end
+    end
+    if #toAsk == 0 then SW.msg("guild prices are already up to date."); if win:IsShown() then SW.Refresh() end; return end
+    SW.GuildMarket.onUpdate = function()
+        if SW.RefreshGuildBuy then SW.RefreshGuildBuy() end
+        if win and win:IsShown() then SW.Refresh() end
+    end
+    local ok, info = SW.GuildMarket.Query(toAsk)
+    if ok then SW.msg(("pricing %d more farmed mat(s) via the guild market..."):format(tonumber(info) or 0))
+    else SW.msg(tostring(info)) end
 end
 
 -- ----- trainer support (used when a profession trainer window is open) -----
@@ -486,6 +574,17 @@ local function RenderNow(prof, rank)
     if plan.craftableNow < plan.remaining then
         sub = sub .. ("\n|cffaaccffYou can craft %d now|r |cff888888with the mats you have|r"):format(plan.craftableNow)
     end
+    -- The "Make N more" target is padded so you reliably hit the skill (recipes go green and
+    -- skip skill-ups). Show the bare minimum too, so nobody farms hundreds of spare mats.
+    if plan.minCrafts and plan.minCrafts < plan.remaining then
+        local mn = {}
+        for _, e in ipairs(plan.mats) do
+            if (e.minNeed or 0) > 0 then mn[#mn + 1] = ("%d %s"):format(e.minNeed, e.name) end
+        end
+        if #mn > 0 then
+            sub = sub .. ("\n|cff888888Minimum if every craft skills up: %d crafts (%s).|r"):format(plan.minCrafts, table.concat(mn, ", "))
+        end
+    end
     c.subFS:SetText(sub)
 
     local y = 2
@@ -527,6 +626,48 @@ local function RenderNow(prof, rank)
         c.buyFS:Hide()
     end
 
+    -- Action buttons: "Buy needed mats" (shown at a vendor that stocks what we need) and
+    -- "Check guild prices" (GuildFoundMarket connected). Lay them side by side when both
+    -- apply, so they take one row instead of two; a lone button keeps its normal width.
+    c.buyBtn:Hide(); c.gpBtn:Hide(); c.gpFS:Hide()
+    local buyable = false
+    if win.merchantOpen and win.merchantMap then
+        for _, e in ipairs(plan.mats) do
+            if win.merchantMap[e.id] and BuyQty(e) > 0 then buyable = true; break end
+        end
+    end
+    local hasFarmed = false
+    for _, e in ipairs(plan.mats) do if not SW.IsVendorMat(e.id) then hasFarmed = true; break end end
+    local showGuild = hasFarmed and SW.GuildMarket and SW.GuildMarket.Available()
+
+    if buyable and showGuild then
+        local gap = 6
+        local halfW = math.floor((cw - 2 - gap) / 2)
+        c.buyBtn:SetWidth(halfW); c.buyBtn:SetText("Buy needed mats")
+        c.buyBtn:ClearAllPoints(); c.buyBtn:SetPoint("TOPLEFT", 2, -y); c.buyBtn:Show()
+        c.gpBtn:SetWidth(halfW); c.gpBtn:SetText("Check guild prices")
+        c.gpBtn:ClearAllPoints(); c.gpBtn:SetPoint("TOPLEFT", 2 + halfW + gap, -y); c.gpBtn:Show()
+        y = y + 28
+    elseif buyable then
+        c.buyBtn:SetWidth(150); c.buyBtn:SetText("Buy needed mats")
+        c.buyBtn:ClearAllPoints(); c.buyBtn:SetPoint("TOPLEFT", 2, -y); c.buyBtn:Show()
+        y = y + 28
+    elseif showGuild then
+        c.gpBtn:SetWidth(150); c.gpBtn:SetText("Check guild prices")
+        c.gpBtn:ClearAllPoints(); c.gpBtn:SetPoint("TOPLEFT", 2, -y); c.gpBtn:Show()
+        y = y + 28
+    end
+
+    -- GFM present-but-disconnected or not installed: a prompt instead of the button.
+    if hasFarmed and SW.GuildMarket and not SW.GuildMarket.Available() then
+        local hint = SW.GuildMarket.Installed()
+            and "|cff888888GuildFoundMarket isn't connected to your guild's market yet.|r"
+            or  "|cff888888Get the |r|cffffd100GuildFoundMarket|r|cff888888 addon to find guildies selling these mats.|r"
+        c.gpFS:SetText(hint)
+        c.gpFS:ClearAllPoints(); c.gpFS:SetPoint("TOPLEFT", 2, -y); c.gpFS:Show()
+        y = y + (c.gpFS:GetStringHeight() or 14) + 6
+    end
+
     -- Bank reminder: mats you already own but have stashed in the bank.
     local banks = {}
     for _, e in ipairs(plan.mats) do
@@ -540,9 +681,9 @@ local function RenderNow(prof, rank)
         c.bankFS:Hide()
     end
 
-    -- Craft button (only when the trade window for this profession is open). Buy and Train
-    -- live as buttons on the merchant / trainer windows instead.
-    c.buyBtn:Hide(); c.trainBtn:Hide()
+    -- Craft button (only when the trade window for this profession is open). The Buy button
+    -- is positioned above (under the vendor line); Train lives on the trainer window.
+    c.trainBtn:Hide()
     local idx = SW.RecipeIndex(prof, s.recipe)
     if idx then
         -- Always clickable so you can just craft whatever's possible; the game caps it at the
@@ -588,6 +729,119 @@ local function RenderNow(prof, rank)
     else
         for k = 1, #c.upRows do c.upRows[k]:Hide() end
     end
+
+    c:SetWidth(ContentW()); c:SetHeight(y)
+end
+
+-- Lazily build the preview-overview widgets (framed icon, title, three stat cards, a "start
+-- here" block and the tier roadmap), pooled on the content frame and reused each render.
+local function EnsureOverview(c)
+    if c.ov then return c.ov end
+    local ov = { roadRows = {} }
+    c.ov = ov
+
+    ov.iconBorder = c:CreateTexture(nil, "BORDER"); ov.iconBorder:SetColorTexture(0.5, 0.42, 0.28, 0.6)
+    ov.icon = c:CreateTexture(nil, "ARTWORK"); ov.icon:SetSize(48, 48); ov.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    ov.iconBorder:SetPoint("TOPLEFT", ov.icon, "TOPLEFT", -2, 2); ov.iconBorder:SetPoint("BOTTOMRIGHT", ov.icon, "BOTTOMRIGHT", 2, -2)
+
+    ov.title = c:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); ov.title:SetJustifyH("LEFT")
+    ov.sub = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); ov.sub:SetJustifyH("LEFT")
+
+    ov.cards = {}
+    for i = 1, 3 do
+        local card = CreateFrame("Frame", nil, c, "BackdropTemplate")
+        card:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+        card:SetBackdropColor(0.12, 0.1, 0.07, 0.85)
+        card:SetBackdropBorderColor(0.5, 0.42, 0.28, 0.7)
+        card.num = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); card.num:SetPoint("TOP", 0, -7)
+        card.lbl = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); card.lbl:SetPoint("BOTTOM", 0, 7)
+        ov.cards[i] = card
+    end
+
+    ov.startTitle = c:CreateFontString(nil, "OVERLAY", "GameFontNormal"); ov.startTitle:SetText("|cffe6b34dStart here|r")
+    ov.startIcon = c:CreateTexture(nil, "ARTWORK"); ov.startIcon:SetSize(24, 24); ov.startIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    ov.startFS = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); ov.startFS:SetJustifyH("LEFT")
+
+    ov.roadTitle = c:CreateFontString(nil, "OVERLAY", "GameFontNormal"); ov.roadTitle:SetText("|cffe6b34dThe path at a glance|r")
+
+    ov.widgets = { ov.iconBorder, ov.icon, ov.title, ov.sub, ov.cards[1], ov.cards[2], ov.cards[3],
+                   ov.startTitle, ov.startIcon, ov.startFS, ov.roadTitle }
+    return ov
+end
+
+-- The Now tab for a profession you HAVEN'T learned: a richer overview of what leveling it
+-- involves, instead of pretending you're mid-craft. Steps/Shopping still show the detail.
+local function RenderOverview(prof)
+    local c = win.content
+    local cw = ContentW() - 4
+    local ov = EnsureOverview(c)
+    local steps = SW.PATHS[prof]
+
+    -- Header: framed icon + name + "preview" subtitle.
+    ov.icon:SetTexture(SW.ProfIcon(prof))
+    ov.icon:ClearAllPoints(); ov.icon:SetPoint("TOPLEFT", 6, -6); ov.icon:Show(); ov.iconBorder:Show()
+    ov.title:SetText("|cffffffff" .. prof .. "|r")
+    ov.title:ClearAllPoints(); ov.title:SetPoint("TOPLEFT", ov.icon, "TOPRIGHT", 12, -3); ov.title:Show()
+    ov.sub:SetText("|cff9a8cc0Preview|r |cff777777- you haven't learned this yet|r")
+    ov.sub:ClearAllPoints(); ov.sub:SetPoint("BOTTOMLEFT", ov.icon, "BOTTOMRIGHT", 12, 5); ov.sub:Show()
+
+    local y = 6 + 48 + 12
+
+    -- Three stat cards: steps / crafts / total mats.
+    local eff = SW.ProfEffort(prof, 0) or {}
+    local big = BreakUpLargeNumbers or tostring
+    local stats = { { tostring(eff.steps or 0), "steps" }, { big(eff.crafts or 0), "crafts" }, { big(eff.mats or 0), "mats" } }
+    local gap = 8
+    local cardW = math.floor((cw - 4 - gap * 2) / 3)
+    for i, card in ipairs(ov.cards) do
+        card:SetSize(cardW, 42)
+        card:ClearAllPoints(); card:SetPoint("TOPLEFT", 2 + (i - 1) * (cardW + gap), -y)
+        card.num:SetText("|cffffd96b" .. stats[i][1] .. "|r")
+        card.lbl:SetText("|cff9a9a9a" .. stats[i][2] .. "|r")
+        card:Show()
+    end
+    y = y + 42 + 16
+
+    -- Start here: the first recipe.
+    ov.startTitle:ClearAllPoints(); ov.startTitle:SetPoint("TOPLEFT", 4, -y); ov.startTitle:Show()
+    y = y + 19
+    local s1 = steps and steps[1]
+    if s1 then
+        ov.startIcon:SetTexture(ItemIcon(s1.item))
+        ov.startIcon:ClearAllPoints(); ov.startIcon:SetPoint("TOPLEFT", 6, -y); ov.startIcon:Show()
+        ov.startFS:SetWidth(cw - 40)
+        ov.startFS:SetText(("|cffffffff%s|r |cff888888(skill %d-%d)|r\n|cffbfb59cLearn %s from a trainer to begin.|r"):format(s1.recipe, s1.from, s1.to, prof))
+        ov.startFS:ClearAllPoints(); ov.startFS:SetPoint("TOPLEFT", 36, -y); ov.startFS:Show()
+        y = y + math.max(28, (ov.startFS:GetStringHeight() or 28)) + 14
+    end
+
+    -- The path at a glance: one line per trainer tier listing its recipes.
+    ov.roadTitle:ClearAllPoints(); ov.roadTitle:SetPoint("TOPLEFT", 4, -y); ov.roadTitle:Show()
+    y = y + 19
+    local ri = 0
+    for _, tier in ipairs(SW.TIERS) do
+        local lo, hi, tname = tier[1], tier[2], tier[3]
+        local recs = {}
+        for _, s in ipairs(steps or {}) do
+            if s.from >= lo and s.from < hi then recs[#recs + 1] = s.recipe end
+        end
+        if #recs > 0 then
+            ri = ri + 1
+            local r = ov.roadRows[ri]
+            if not r then
+                r = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r:SetJustifyH("LEFT")
+                ov.roadRows[ri] = r
+            end
+            r:SetWidth(cw - 10)
+            r:SetText(("|cffe1b94e%s|r |cff777777%d-%d|r   |cffd2cdbf%s|r"):format(tname, lo, hi, table.concat(recs, ", ")))
+            r:ClearAllPoints(); r:SetPoint("TOPLEFT", 8, -y); r:Show()
+            y = y + (r:GetStringHeight() or 14) + 5
+        end
+    end
+    for i = ri + 1, #ov.roadRows do ov.roadRows[i]:Hide() end
+    y = y + 8
 
     c:SetWidth(ContentW()); c:SetHeight(y)
 end
@@ -662,6 +916,44 @@ local function RenderMats(prof, rank)
     local c = win.content
     local tiers = SW.TierShopping(prof, rank)
     local y, hidx, mi = 0, 0, 0
+
+    -- Guild-market cost estimate: total the farmed (non-vendor) mats left to 300 by their
+    -- cheapest guild price. The button asks GuildFoundMarket a few mats at a time, on click.
+    local need, farmed = {}, {}
+    for _, tier in ipairs(tiers) do
+        for _, m in ipairs(tier.mats) do
+            if m.id and not SW.IsVendorMat(m.id) then
+                if not need[m.id] then need[m.id] = { qty = 0 }; farmed[#farmed + 1] = m.id end
+                need[m.id].qty = need[m.id].qty + (m.qty or 0)
+            end
+        end
+    end
+    win.shopFarmed = farmed
+    if SW.GuildMarket and SW.GuildMarket.Available() and #farmed > 0 then
+        local total, priced = 0, 0
+        for _, id in ipairs(farmed) do
+            if SW.GuildMarket.IsFresh(id) then
+                local p = SW.GuildMarket.Get(id)
+                if p then total = total + p * need[id].qty; priced = priced + 1 end
+            end
+        end
+        c.costBtn:SetText(priced > 0 and "Update guild prices" or "Estimate cost")
+        c.costBtn:ClearAllPoints(); c.costBtn:SetPoint("TOPLEFT", 2, -y); c.costBtn:Show()
+        y = y + 26
+        if priced > 0 then
+            local coin = GetCoinTextureString and GetCoinTextureString(total) or (total .. "c")
+            local note = (priced < #farmed) and (" |cff888888- click again to price the rest|r") or ""
+            c.costFS:SetText(("|cff66ccffGuild-market estimate:|r |cffffd96b%s|r |cff888888for farmed mats (%d/%d priced)|r%s"):format(coin, priced, #farmed, note))
+        else
+            c.costFS:SetText("|cff888888Price the farmed mats left to 300 with guildmates' listings.|r")
+        end
+        c.costFS:SetWidth(ContentW() - 8)
+        c.costFS:ClearAllPoints(); c.costFS:SetPoint("TOPLEFT", 2, -y); c.costFS:Show()
+        y = y + (c.costFS:GetStringHeight() or 14) + 8
+    else
+        c.costBtn:Hide(); c.costFS:Hide()
+    end
+
     for _, tier in ipairs(tiers) do
         hidx = hidx + 1
         y = TierHeader(c, hidx, y, tier.name, tier.lo, tier.hi, tier.current)
@@ -793,7 +1085,9 @@ function SW.Refresh()
                 t:SetBackdropBorderColor(0.34, 0.3, 0.23, 0.7)
             end
         end
-        if view == "now" then RenderNow(prof, rank)
+        if view == "now" then
+            -- Professions you haven't learned get an overview instead of a fake "current step".
+            if SW.IsLearned(prof) then RenderNow(prof, rank) else RenderOverview(prof) end
         elseif view == "steps" then RenderSteps(prof, rank)
         else RenderMats(prof, rank) end
     end
@@ -820,10 +1114,17 @@ function SW.ResetPosition()
     if win then Anchor() end
 end
 
+-- Previews (professions you haven't learned) should land on the Now/overview tab, not on
+-- whatever detail tab you last had open for a real profession.
+local function DefaultViewFor(prof)
+    if prof and not SW.IsLearned(prof) then DB().view = "now" end
+end
+
 -- Open the guide window for a specific profession at its saved/standalone position.
 function SW.ShowGuide(prof)
     BuildWindow()
     if prof then DB().active = prof end
+    DefaultViewFor(prof)
     ClearDock()
     ShowWin()
 end
@@ -835,6 +1136,7 @@ function SW.ToggleGuideFor(prof)
         win:Hide()
     else
         if prof then DB().active = prof end
+        DefaultViewFor(prof)
         ClearDock()
         ShowWin()
     end
@@ -845,12 +1147,17 @@ local function ToggleGuide()
     if win:IsShown() then win:Hide() else ClearDock(); ShowWin() end
 end
 
+-- Global for the keybinding (Bindings.xml).
+function SkillwrightToggleGuide() ToggleGuide() end
+
 SLASH_SKILLWRIGHT1 = "/skillwright"
 SLASH_SKILLWRIGHT2 = "/sw"
 SlashCmdList["SKILLWRIGHT"] = function(input)
     input = (input or ""):lower():gsub("%s", "")
     if input == "config" or input == "options" then
         if SW.OpenOptions then SW.OpenOptions() end
+    elseif input == "verify" then
+        if SW.VerifyData then SW.VerifyData() end
     elseif input == "guide" then
         ToggleGuide()
     elseif SW.ToggleDashboard then
@@ -932,6 +1239,29 @@ local function MerchantNeed(prof)
     return out
 end
 
+-- The vendor's needs aggregated across EVERY learned crafting profession the character has, so
+-- the merchant button buys what all your professions need here - not just the active one. Mats
+-- a vendor stocks that several professions use (e.g. Coarse Thread) are summed.
+local function MerchantNeedAll()
+    if not (win and win.merchantMap) then return {} end
+    local byId, order = {}, {}
+    for _, p in ipairs(SW.CharProfessions()) do
+        if p.hasGuide and SW.PATHS[p.name] then
+            for _, m in ipairs(MerchantNeed(p.name)) do
+                local agg = byId[m.id]
+                if not agg then
+                    agg = { id = m.id, name = m.name, buyNow = 0, slot = m.slot }
+                    byId[m.id] = agg; order[#order + 1] = m.id
+                end
+                agg.buyNow = agg.buyNow + m.buyNow
+            end
+        end
+    end
+    local out = {}
+    for _, id in ipairs(order) do out[#out + 1] = byId[id] end
+    return out
+end
+
 local function DoBuy(list)
     for _, m in ipairs(list) do
         local _, _, _, _, numAvail = GetMerchantItemInfo(m.slot)
@@ -953,15 +1283,17 @@ local merchantBtn
 local function UpdateMerchantButton()
     if not _G.MerchantFrame then return end
     if DB().contextButtons == false then if merchantBtn then merchantBtn:Hide() end; return end
-    local list = MerchantNeed(ActiveProfession())
+    local list = MerchantNeedAll()
     if #list == 0 then if merchantBtn then merchantBtn:Hide() end; return end
     if not merchantBtn then
         merchantBtn = CreateFrame("Button", "SkillwrightMerchantButton", _G.MerchantFrame, "UIPanelButtonTemplate")
         merchantBtn:SetSize(150, 22)
-        merchantBtn:SetPoint("TOP", _G.MerchantFrame, "BOTTOM", 0, -2)
+        -- Sit in the open strip just below the vendor's name, above the first item row.
+        merchantBtn:SetPoint("TOP", _G.MerchantFrame, "TOP", 0, -38)
+        merchantBtn:SetFrameLevel(_G.MerchantFrame:GetFrameLevel() + 10)
         merchantBtn:SetScript("OnClick", function(self) DoBuy(self._list or {}) end)
         merchantBtn:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Buy Skillwright reagents", 1, 0.85, 0.2)
             local total = 0
             for _, m in ipairs(self._list or {}) do
@@ -980,7 +1312,7 @@ local function UpdateMerchantButton()
         merchantBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
     merchantBtn._list = list
-    merchantBtn:SetText("Buy reagents")
+    merchantBtn:SetText("Buy needed mats")
     merchantBtn:Show()
 end
 
@@ -1043,13 +1375,38 @@ local function AttachToggle(frame, getCtx)
     frame.swToggle:Show()
 end
 
+-- Stop a Skillwright-initiated repeat craft the instant we hit the step's skill target. We
+-- check on both TRADE_SKILL_UPDATE and SKILL_LINES_CHANGED: the former can miss the exact
+-- skill-up tick during a fast repeat, while SKILL_LINES_CHANGED fires reliably on every skill
+-- gain - exactly when we want to stop. StopTradeSkillRepeat cancels the queued repeats;
+-- SpellStopCasting aborts the one extra craft that may already be casting (its mats aren't
+-- consumed until it finishes, so we save them).
+local function MaybeStopCraft()
+    if not (win and win.craftStopAt and GetTradeSkillLine) then return end
+    local _, cr = GetTradeSkillLine()
+    if not (cr and cr >= win.craftStopAt) then return end
+    -- Only ever stop the leveling recipe we started. If you've moved on to crafting something
+    -- else, leave it completely alone (and disarm so we never interfere with that craft).
+    local casting = UnitCastingInfo and UnitCastingInfo("player")
+    if win.craftRecipe and casting and casting ~= win.craftRecipe then
+        win.craftStopAt, win.craftRecipe = nil, nil
+        return
+    end
+    win.craftStopAt, win.craftRecipe = nil, nil
+    if StopTradeSkillRepeat then StopTradeSkillRepeat() end   -- cancel the queued repeats
+    if SpellStopCasting then SpellStopCasting() end           -- abort the one extra craft mid-cast
+    msg(("reached skill %d - stopped crafting. Train or move to the next step."):format(cr))
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("TRADE_SKILL_SHOW")
 ev:RegisterEvent("TRADE_SKILL_CLOSE")
 ev:RegisterEvent("TRADE_SKILL_UPDATE")
+ev:RegisterEvent("SKILL_LINES_CHANGED")
 ev:RegisterEvent("BAG_UPDATE_DELAYED")
 ev:RegisterEvent("MERCHANT_SHOW")
+ev:RegisterEvent("MERCHANT_UPDATE")
 ev:RegisterEvent("MERCHANT_CLOSED")
 ev:RegisterEvent("TRAINER_SHOW")
 ev:RegisterEvent("TRAINER_UPDATE")
@@ -1062,9 +1419,25 @@ ev:SetScript("OnEvent", function(_, event)
         BuildWindow(); ScanMerchant(); UpdateMerchantButton()
         AttachToggle(_G.MerchantFrame, function() return ActiveProfession(), "merchant" end)
         if win:IsShown() then SW.Refresh() end
+    elseif event == "MERCHANT_UPDATE" then
+        -- Vendor stock/links can finish loading a moment after MERCHANT_SHOW (and change on
+        -- page flips), so re-scan and re-evaluate the buy buttons in case the first scan
+        -- missed an item we need.
+        if win and win.merchantOpen then
+            ScanMerchant(); UpdateMerchantButton()
+            if win:IsShown() then SW.Refresh() end
+        end
     elseif event == "MERCHANT_CLOSED" then
         if merchantBtn then merchantBtn:Hide() end
-        if win then win.merchantOpen = false; win.merchantMap = nil; if win:IsShown() then SW.Refresh() end end
+        if win then
+            win.merchantOpen = false; win.merchantMap = nil
+            if win.context == "merchant" and win:IsShown() then
+                -- The guide is docked to this vendor, so close it along with the vendor window.
+                win:Hide(); ClearDock()
+            elseif win:IsShown() then
+                SW.Refresh()
+            end
+        end
     elseif event == "TRAINER_SHOW" then
         BuildWindow(); win.trainerOpen = true
         AttachToggle(_G.ClassTrainerFrame, function() return SW.TrainerProfession() or ActiveProfession(), "trainer" end)
@@ -1088,18 +1461,14 @@ ev:SetScript("OnEvent", function(_, event)
         end
     elseif event == "TRADE_SKILL_CLOSE" then
         CloseContext("trade")
+    elseif event == "SKILL_LINES_CHANGED" then
+        -- Most reliable "your skill just went up" signal - stop the craft right here.
+        MaybeStopCraft()
+        if win and win:IsShown() then SW.Refresh() end
     elseif event == "TRADE_SKILL_UPDATE" or event == "BAG_UPDATE_DELAYED" then
         if event == "BAG_UPDATE_DELAYED" and win and win.merchantOpen then UpdateMerchantButton() end
         if win then
-            -- Failsafe: stop a repeating craft the moment we reach the step target / trainable cap.
-            if event == "TRADE_SKILL_UPDATE" and win.craftStopAt and StopTradeSkillRepeat and GetTradeSkillLine then
-                local _, cr = GetTradeSkillLine()
-                if cr and cr >= win.craftStopAt then
-                    StopTradeSkillRepeat()
-                    msg(("reached skill %d - stopped crafting. Train or move to the next step."):format(cr))
-                    win.craftStopAt = nil
-                end
-            end
+            if event == "TRADE_SKILL_UPDATE" then MaybeStopCraft() end
             if win:IsShown() then SW.Refresh() end
         end
     end

@@ -22,10 +22,10 @@ local function BuildOptions()
     if panel then return end
     panel = CreateFrame("Frame")
     panel.name = "Skillwright"
-    -- Close the dashboard and show the guide while settings are up, so changes preview live.
+    -- Tidy the dashboard away while settings are up; the guide opens only on request (the
+    -- "Show guide window" button below) so you can preview opacity / size / background live.
     panel:SetScript("OnShow", function()
         if SW.HideDashboard then SW.HideDashboard() end
-        if SW.EnsureGuide then SW.EnsureGuide() end
     end)
 
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -99,8 +99,14 @@ local function BuildOptions()
     reset:SetText("Reset window position")
     reset:SetScript("OnClick", function() if SW.ResetPosition then SW.ResetPosition() end end)
 
+    -- Open the guide here so you can watch opacity / size / background change as you drag.
+    local preview = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    preview:SetSize(170, 22); preview:SetPoint("TOPLEFT", 22, -322)
+    preview:SetText("Show guide window")
+    preview:SetScript("OnClick", function() if SW.EnsureGuide then SW.EnsureGuide() end end)
+
     local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", 16, -330)
+    hint:SetPoint("TOPLEFT", 16, -356)
     hint:SetText("|cffffd100/sw|r opens the dashboard, |cffffd100/sw guide|r the guide window.")
 
     -- "Buy me a coffee" support link.

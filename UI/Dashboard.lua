@@ -3,7 +3,7 @@
 local ADDON, SW = ...
 local DB = SW.DB
 
-local DW, ROW_H = 300, 34
+local DW, ROW_H = 462, 34   -- wide enough for two profession columns
 local dash
 
 -- ----- profession row -----
@@ -22,8 +22,26 @@ local function MakeRow(content, i)
     r.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     r.barbg = r.bar:CreateTexture(nil, "BACKGROUND"); r.barbg:SetAllPoints(); r.barbg:SetColorTexture(0, 0, 0, 0.5)
     r.status = r:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall"); r.status:SetPoint("BOTTOMRIGHT", -8, 6); r.status:SetJustifyH("RIGHT")
-    r:SetScript("OnEnter", function(self) if self.guide then self.bg:SetColorTexture(1, 1, 1, 0.09) end end)
-    r:SetScript("OnLeave", function(self) self.bg:SetColorTexture(1, 1, 1, self.stripe and 0.03 or 0) end)
+    r:SetScript("OnEnter", function(self)
+        if self.guide then self.bg:SetColorTexture(1, 1, 1, 0.09) end
+        if not self.profName then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.profName, 1, 0.82, 0.3)
+        local eff = SW.ProfEffort and SW.ProfEffort(self.profName, self._rank or 0)
+        if eff then
+            if eff.gathering then
+                GameTooltip:AddLine(("Gather to 300 — %d zone segment(s) left."):format(eff.segments or 0), 0.8, 0.8, 0.8)
+            else
+                GameTooltip:AddLine(("%d steps  ·  ~%d crafts  ·  %d mats to 300"):format(eff.steps or 0, eff.crafts or 0, eff.mats or 0), 0.8, 0.8, 0.8)
+            end
+        end
+        GameTooltip:AddLine(self._learned and "Click to open the guide." or "Click to preview the full path.", 0.5, 0.5, 0.5)
+        GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function(self)
+        self.bg:SetColorTexture(1, 1, 1, self.stripe and 0.03 or 0)
+        GameTooltip:Hide()
+    end)
     r:SetScript("OnClick", function(self) if self.guide and SW.ToggleGuideFor then SW.ToggleGuideFor(self.profName) end end)
     content.rows[i] = r
     return r
@@ -86,7 +104,7 @@ local function BuildDash()
     sbDiv:SetColorTexture(0.5, 0.42, 0.28, 0.6); sbDiv:SetWidth(1)
     sbDiv:SetPoint("TOPRIGHT", sf, "TOPRIGHT", 4, 2); sbDiv:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 4, -2)
     local content = CreateFrame("Frame", nil, sf)
-    content:SetSize(DW - 30, 10); content.rows = {}
+    content:SetSize(DW - 40, 10); content.rows = {}   -- matches the scroll viewport (no h-scroll)
     sf:SetScrollChild(content)
     f.content = content
 
@@ -102,36 +120,43 @@ function SW.RefreshDashboard()
     if not dash then return end
     dash.charFS:SetText("|cffaaaaaa" .. (UnitName("player") or "") .. "|r")
     local c = dash.content
-    local profs = SW.CharProfessions()
-    local y = 4
+    local profs = SW.AllProfessions()
+    -- Two columns so all 12 professions fit without a tall scroll.
+    local cols, gap = 2, 10
+    local colW = math.floor((c:GetWidth() - gap * (cols - 1)) / cols)
     for i, p in ipairs(profs) do
         local r = MakeRow(c, i)
-        r.profName, r.guide = p.name, p.hasGuide
-        r.icon:SetTexture(SW.ProfIcon(p.name)); r.icon:SetDesaturated(not p.hasGuide)
-        r.name:SetText((p.hasGuide and "|cffffffff" or "|cff888888") .. p.name .. "|r")
-        r.rank:SetText(("|cffe8c66a%d|r|cff666666/%d|r"):format(p.rank, p.max))
-        r.bar:SetMinMaxValues(0, (p.max and p.max > 0) and p.max or 1); r.bar:SetValue(p.rank)
-        if p.hasGuide then r.bar:SetStatusBarColor(0.3, 0.65, 0.3) else r.bar:SetStatusBarColor(0.35, 0.35, 0.4) end
-        local status = "|cff666666no guide yet|r"
-        if p.hasGuide then status = "|cff7fc8ffopen guide|r"
-        elseif SW.GATHERING[p.name] then status = "|cff888888gather to level|r" end
-        r.status:SetText(status)
-        r.stripe = (i % 2 == 0); r.bg:SetColorTexture(1, 1, 1, r.stripe and 0.03 or 0)
-        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -y); r:SetWidth(c:GetWidth())
+        local col = (i - 1) % cols
+        local rowIdx = math.floor((i - 1) / cols)
+        -- Every profession is openable: learned ones show your progress; unlearned ones grey
+        -- out but still open the guide so you can preview / plan them.
+        r.profName, r.guide = p.name, true
+        r._rank, r._learned, r._gathering = p.rank, p.learned, p.gathering
+        r.icon:SetTexture(SW.ProfIcon(p.name)); r.icon:SetDesaturated(not p.learned)
+        r.name:SetText((p.learned and "|cffffffff" or "|cff777777") .. p.name .. "|r")
+        if p.learned then
+            local mx = p.max > 0 and p.max or 300
+            r.rank:SetText(("|cffe8c66a%d|r|cff666666/%d|r"):format(p.rank, mx))
+            r.bar:Show(); r.barbg:Show()
+            r.bar:SetMinMaxValues(0, mx); r.bar:SetValue(p.rank)
+            r.bar:SetStatusBarColor(p.gathering and 0.45 or 0.3, p.gathering and 0.5 or 0.65, p.gathering and 0.6 or 0.3)
+            r.status:SetText(p.gathering and "|cff888888gather to level|r" or "|cff7fc8ffopen guide|r")
+        else
+            r.rank:SetText("|cff666666not learned|r")
+            r.bar:Hide(); r.barbg:Hide()
+            r.status:SetText("|cff8a7fb0preview|r")
+        end
+        r.stripe = (rowIdx % 2 == 1); r.bg:SetColorTexture(1, 1, 1, r.stripe and 0.03 or 0)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", col * (colW + gap), -(4 + rowIdx * (ROW_H + 2)))
+        r:SetWidth(colW)
         r:Show()
-        y = y + ROW_H + 2
     end
     for i = #profs + 1, #c.rows do c.rows[i]:Hide() end
-    if #profs == 0 then
-        local r = MakeRow(c, 1)
-        r.profName, r.guide = nil, false
-        r.icon:SetTexture(nil); r.rank:SetText(""); r.status:SetText("")
-        r.name:SetText("|cff888888No professions learned yet.|r"); r.bg:SetColorTexture(0, 0, 0, 0)
-        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -4); r:SetWidth(c:GetWidth()); r:Show()
-        y = ROW_H
-    end
-    c:SetHeight(y + 4)
-    dash:SetHeight(math.min((UIParent:GetHeight() or 768) - 100, 50 + y))
+    local nrows = math.ceil(#profs / cols)
+    local totalH = 4 + nrows * (ROW_H + 2)
+    c:SetHeight(totalH + 4)
+    dash:SetHeight(math.min((UIParent:GetHeight() or 768) - 100, 50 + totalH))
 end
 
 function SW.ShowDashboard()
@@ -147,6 +172,9 @@ function SW.ToggleDashboard()
     if dash:IsShown() then dash:Hide() else SW.ShowDashboard() end
 end
 
+-- Global for the keybinding (Bindings.xml).
+function SkillwrightToggleDashboard() SW.ToggleDashboard() end
+
 function SW.HideDashboard()
     if dash then dash:Hide() end
 end
@@ -156,7 +184,11 @@ local mmb
 local function UpdateMMBPos()
     if not mmb then return end
     local angle = math.rad(DB().minimapAngle or 210)
-    mmb:SetPoint("CENTER", Minimap, "CENTER", 80 * math.cos(angle), 80 * math.sin(angle))
+    -- Hug the minimap ring; scales with the minimap's actual size so the button
+    -- doesn't drift off the edge when the minimap is resized.
+    local r = (Minimap:GetWidth() / 2) + 5
+    mmb:ClearAllPoints()
+    mmb:SetPoint("CENTER", Minimap, "CENTER", r * math.cos(angle), r * math.sin(angle))
 end
 
 function SW.UpdateMinimap()
@@ -170,10 +202,13 @@ local function BuildMinimap()
     mmb:SetSize(31, 31); mmb:SetFrameStrata("MEDIUM"); mmb:SetFrameLevel(8)
     mmb:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     mmb:RegisterForDrag("LeftButton")
-    local icon = mmb:CreateTexture(nil, "BACKGROUND"); icon:SetSize(22, 22); icon:SetPoint("CENTER", 0, 1)
-    icon:SetTexture("Interface\\AddOns\\Skillwright\\emblem_mm")
+    local icon = mmb:CreateTexture(nil, "BACKGROUND"); icon:SetSize(17, 17); icon:SetPoint("TOPLEFT", 7, -6)
+    icon:SetTexture("Interface\\Icons\\Trade_BlackSmithing")
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     local overlay = mmb:CreateTexture(nil, "OVERLAY"); overlay:SetSize(53, 53); overlay:SetPoint("TOPLEFT")
     overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    -- Hover glow, matching Blizzard's own minimap buttons.
+    mmb:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
     mmb:SetScript("OnClick", function(_, b)
         if b == "RightButton" then if SW.OpenOptions then SW.OpenOptions() end else SW.ToggleDashboard() end
     end)
@@ -201,12 +236,39 @@ local function BuildMinimap()
     SW.UpdateMinimap()
 end
 
+-- Optional LibDataBroker launcher. We don't bundle the lib (Skillwright stays dependency-free),
+-- so this only activates when another addon has already provided it - giving Titan Panel /
+-- ChocolateBar users a Skillwright launcher. Runs at login, when every addon's libs are loaded.
+local function SetupBroker()
+    if SW._broker then return end
+    local LDB = LibStub and LibStub.GetLibrary and LibStub:GetLibrary("LibDataBroker-1.1", true)
+    if not LDB then return end
+    SW._broker = LDB:NewDataObject("Skillwright", {
+        type = "launcher",
+        icon = "Interface\\Icons\\Trade_BlackSmithing",
+        label = "Skillwright",
+        OnClick = function(_, button)
+            if button == "RightButton" then
+                if SW.OpenOptions then SW.OpenOptions() end
+            elseif SW.ToggleDashboard then
+                SW.ToggleDashboard()
+            end
+        end,
+        OnTooltipShow = function(tt)
+            tt:AddLine("Skillwright")
+            tt:AddLine("Left-click: dashboard", 0.8, 0.8, 0.8)
+            tt:AddLine("Right-click: settings", 0.8, 0.8, 0.8)
+        end,
+    })
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("SKILL_LINES_CHANGED")
 ev:SetScript("OnEvent", function(_, e)
     if e == "PLAYER_LOGIN" then
         BuildMinimap()
+        SetupBroker()
     elseif e == "SKILL_LINES_CHANGED" then
         if dash and dash:IsShown() then SW.RefreshDashboard() end
     end
