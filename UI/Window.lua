@@ -68,13 +68,6 @@ local function MakeIcon(content, i)
         if self._id then pcall(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self._id) end
         GameTooltip:AddLine(("Have %d  /  Need %d"):format(self._have or 0, self._req or 0), 1, 1, 1)
         if (self._bank or 0) > 0 then GameTooltip:AddLine(("(%d of those are in your bank)"):format(self._bank), 0.5, 0.65, 1) end
-        if SW.GuildMarket and self._id and SW.GuildMarket.IsFresh(self._id) then
-            local price, qty, seller = SW.GuildMarket.Get(self._id)
-            if price then
-                GameTooltip:AddLine(("Guild market: %dx @ %s (%s)"):format(
-                    qty or 0, GetCoinTextureString and GetCoinTextureString(price) or (price .. "c"), seller or "?"), 0.4, 0.8, 1)
-            end
-        end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -160,13 +153,6 @@ local function MakeMatRow(content, i)
         if self._id then pcall(GameTooltip.SetHyperlink, GameTooltip, "item:" .. self._id) end
         GameTooltip:AddLine(("Have %d  /  Need %d"):format(self._have or 0, self._req or 0), 1, 1, 1)
         if (self._bank or 0) > 0 then GameTooltip:AddLine(("(%d of those are in your bank)"):format(self._bank), 0.5, 0.65, 1) end
-        if SW.GuildMarket and self._id and SW.GuildMarket.IsFresh(self._id) then
-            local price, qty, seller = SW.GuildMarket.Get(self._id)
-            if price then
-                GameTooltip:AddLine(("Guild market: %dx @ %s (%s)"):format(
-                    qty or 0, GetCoinTextureString and GetCoinTextureString(price) or (price .. "c"), seller or "?"), 0.4, 0.8, 1)
-            end
-        end
         GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function(self)
@@ -319,42 +305,15 @@ local function BuildWindow()
     content.buyBtn:SetScript("OnClick", function() SW.BuyNeededMats() end)
     content.buyBtn:SetScript("OnEnter", function(self) SW.BuyButtonTooltip(self) end)
     content.buyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- Guild-market price line + "check" button (GuildFoundMarket bridge).
-    content.gpFS = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    content.gpFS:SetWidth(266); content.gpFS:SetJustifyH("LEFT")
-    content.gpBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-    content.gpBtn:SetSize(150, 22)
-    content.gpBtn:SetScript("OnClick", function() SW.CheckGuildPrices() end)
-    content.gpBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Check guild prices", 1, 0.85, 0.2)
-        GameTooltip:AddLine("Asks GuildFoundMarket what guildmates are selling these mats for.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    content.gpBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     content.craftBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     content.craftBtn:SetSize(104, 22)
     content.craftBtn:SetScript("OnClick", function() SW.CraftCurrent() end)
     content.trainBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     content.trainBtn:SetSize(160, 22)
     content.trainBtn:SetScript("OnClick", function() SW.TrainNeeded(ActiveProfession()) end)
-    -- Shopping tab: guild-market cost estimate for the farmed mats left to 300.
-    content.costBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-    content.costBtn:SetSize(150, 22)
-    content.costBtn:SetScript("OnClick", function() SW.EstimateCost() end)
-    content.costBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Estimate cost to 300", 1, 0.85, 0.2)
-        GameTooltip:AddLine("Prices the farmed mats left to max using guildmates' GuildFoundMarket listings. Asks a few at a time.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    content.costBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    content.costFS = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall"); content.costFS:SetJustifyH("LEFT")
     content.buyFS:Hide(); content.buyBtn:Hide(); content.craftBtn:Hide(); content.trainBtn:Hide()
-    content.gpFS:Hide(); content.gpBtn:Hide(); content.costBtn:Hide(); content.costFS:Hide()
 
     tinsert(UISpecialFrames, "SkillwrightFrame")
-    f:HookScript("OnHide", function() if SW.HideGuildBuy then SW.HideGuildBuy() end end)
     win = f
     SW.RegisterWindow(f)
     SW.ApplyWindowSettings()
@@ -367,8 +326,6 @@ local function HideGroups()
     win.content.bigFS:Hide(); win.content.subFS:Hide(); win.content.bigHit:Hide()
     win.content.noteBox:Hide(); win.content.upBox:Hide()
     win.content.buyFS:Hide(); win.content.bankFS:Hide(); win.content.buyBtn:Hide(); win.content.craftBtn:Hide(); win.content.trainBtn:Hide()
-    win.content.gpFS:Hide(); win.content.gpBtn:Hide()
-    win.content.costBtn:Hide(); win.content.costFS:Hide()
     for _, b in ipairs(win.content.icons) do b:Hide() end
     for _, r in ipairs(win.content.stepRows) do r:Hide() end
     for _, r in ipairs(win.content.matRows) do r:Hide() end
@@ -469,45 +426,6 @@ function SW.BuyButtonTooltip(btn)
     end
     GameTooltip:AddLine(("Enough to craft %d now."):format((plan and plan.craftableNow) or 0), 0.5, 0.5, 0.5)
     GameTooltip:Show()
-end
-
--- Ask GuildFoundMarket what guildmates are selling this step's farmed mats for, and open the
--- results side panel. Vendor mats (thread/dye/salt/vials) are skipped - you just buy those
--- from a supplier. Runs from the button click (a hardware event), which the channel requires.
-function SW.CheckGuildPrices()
-    local plan = win and win.plan
-    if not (plan and plan.mats and SW.GuildMarket) then return end
-    local ids = {}
-    for _, e in ipairs(plan.mats) do
-        if not SW.IsVendorMat(e.id) then ids[#ids + 1] = e.id end
-    end
-    if #ids == 0 then SW.msg("this step only needs vendor-bought mats - grab those from a supplier."); return end
-    if SW.ShowGuildBuy then SW.ShowGuildBuy(ids) end
-    SW.GuildMarket.onUpdate = function()
-        if SW.RefreshGuildBuy then SW.RefreshGuildBuy() end
-        if win and win:IsShown() then SW.Refresh() end   -- mat tooltips pick up fresh prices
-    end
-    local ok, info = SW.GuildMarket.Query(ids)
-    if ok then SW.msg(("checking guild prices for %d mat(s)..."):format(tonumber(info) or 0))
-    else SW.msg(tostring(info)) end
-end
-
--- Shopping tab: price the farmed mats left to 300 via the guild market. Only asks for mats we
--- don't already have a fresh price for (so repeat clicks fill in the rest, a batch at a time).
-function SW.EstimateCost()
-    if not (win and SW.GuildMarket and win.shopFarmed) then return end
-    local toAsk = {}
-    for _, id in ipairs(win.shopFarmed) do
-        if not SW.GuildMarket.IsFresh(id) then toAsk[#toAsk + 1] = id end
-    end
-    if #toAsk == 0 then SW.msg("guild prices are already up to date."); if win:IsShown() then SW.Refresh() end; return end
-    SW.GuildMarket.onUpdate = function()
-        if SW.RefreshGuildBuy then SW.RefreshGuildBuy() end
-        if win and win:IsShown() then SW.Refresh() end
-    end
-    local ok, info = SW.GuildMarket.Query(toAsk)
-    if ok then SW.msg(("pricing %d more farmed mat(s) via the guild market..."):format(tonumber(info) or 0))
-    else SW.msg(tostring(info)) end
 end
 
 -- ----- trainer support (used when a profession trainer window is open) -----
@@ -626,46 +544,18 @@ local function RenderNow(prof, rank)
         c.buyFS:Hide()
     end
 
-    -- Action buttons: "Buy needed mats" (shown at a vendor that stocks what we need) and
-    -- "Check guild prices" (GuildFoundMarket connected). Lay them side by side when both
-    -- apply, so they take one row instead of two; a lone button keeps its normal width.
-    c.buyBtn:Hide(); c.gpBtn:Hide(); c.gpFS:Hide()
+    -- Action button: "Buy needed mats" - shown at a vendor that stocks what we still need.
+    c.buyBtn:Hide()
     local buyable = false
     if win.merchantOpen and win.merchantMap then
         for _, e in ipairs(plan.mats) do
             if win.merchantMap[e.id] and BuyQty(e) > 0 then buyable = true; break end
         end
     end
-    local hasFarmed = false
-    for _, e in ipairs(plan.mats) do if not SW.IsVendorMat(e.id) then hasFarmed = true; break end end
-    local showGuild = hasFarmed and SW.GuildMarket and SW.GuildMarket.Available()
-
-    if buyable and showGuild then
-        local gap = 6
-        local halfW = math.floor((cw - 2 - gap) / 2)
-        c.buyBtn:SetWidth(halfW); c.buyBtn:SetText("Buy needed mats")
-        c.buyBtn:ClearAllPoints(); c.buyBtn:SetPoint("TOPLEFT", 2, -y); c.buyBtn:Show()
-        c.gpBtn:SetWidth(halfW); c.gpBtn:SetText("Check guild prices")
-        c.gpBtn:ClearAllPoints(); c.gpBtn:SetPoint("TOPLEFT", 2 + halfW + gap, -y); c.gpBtn:Show()
-        y = y + 28
-    elseif buyable then
+    if buyable then
         c.buyBtn:SetWidth(150); c.buyBtn:SetText("Buy needed mats")
         c.buyBtn:ClearAllPoints(); c.buyBtn:SetPoint("TOPLEFT", 2, -y); c.buyBtn:Show()
         y = y + 28
-    elseif showGuild then
-        c.gpBtn:SetWidth(150); c.gpBtn:SetText("Check guild prices")
-        c.gpBtn:ClearAllPoints(); c.gpBtn:SetPoint("TOPLEFT", 2, -y); c.gpBtn:Show()
-        y = y + 28
-    end
-
-    -- GFM present-but-disconnected or not installed: a prompt instead of the button.
-    if hasFarmed and SW.GuildMarket and not SW.GuildMarket.Available() then
-        local hint = SW.GuildMarket.Installed()
-            and "|cff888888GuildFoundMarket isn't connected to your guild's market yet.|r"
-            or  "|cff888888Get the |r|cffffd100GuildFoundMarket|r|cff888888 addon to find guildies selling these mats.|r"
-        c.gpFS:SetText(hint)
-        c.gpFS:ClearAllPoints(); c.gpFS:SetPoint("TOPLEFT", 2, -y); c.gpFS:Show()
-        y = y + (c.gpFS:GetStringHeight() or 14) + 6
     end
 
     -- Bank reminder: mats you already own but have stashed in the bank.
@@ -916,43 +806,6 @@ local function RenderMats(prof, rank)
     local c = win.content
     local tiers = SW.TierShopping(prof, rank)
     local y, hidx, mi = 0, 0, 0
-
-    -- Guild-market cost estimate: total the farmed (non-vendor) mats left to 300 by their
-    -- cheapest guild price. The button asks GuildFoundMarket a few mats at a time, on click.
-    local need, farmed = {}, {}
-    for _, tier in ipairs(tiers) do
-        for _, m in ipairs(tier.mats) do
-            if m.id and not SW.IsVendorMat(m.id) then
-                if not need[m.id] then need[m.id] = { qty = 0 }; farmed[#farmed + 1] = m.id end
-                need[m.id].qty = need[m.id].qty + (m.qty or 0)
-            end
-        end
-    end
-    win.shopFarmed = farmed
-    if SW.GuildMarket and SW.GuildMarket.Available() and #farmed > 0 then
-        local total, priced = 0, 0
-        for _, id in ipairs(farmed) do
-            if SW.GuildMarket.IsFresh(id) then
-                local p = SW.GuildMarket.Get(id)
-                if p then total = total + p * need[id].qty; priced = priced + 1 end
-            end
-        end
-        c.costBtn:SetText(priced > 0 and "Update guild prices" or "Estimate cost")
-        c.costBtn:ClearAllPoints(); c.costBtn:SetPoint("TOPLEFT", 2, -y); c.costBtn:Show()
-        y = y + 26
-        if priced > 0 then
-            local coin = GetCoinTextureString and GetCoinTextureString(total) or (total .. "c")
-            local note = (priced < #farmed) and (" |cff888888- click again to price the rest|r") or ""
-            c.costFS:SetText(("|cff66ccffGuild-market estimate:|r |cffffd96b%s|r |cff888888for farmed mats (%d/%d priced)|r%s"):format(coin, priced, #farmed, note))
-        else
-            c.costFS:SetText("|cff888888Price the farmed mats left to 300 with guildmates' listings.|r")
-        end
-        c.costFS:SetWidth(ContentW() - 8)
-        c.costFS:ClearAllPoints(); c.costFS:SetPoint("TOPLEFT", 2, -y); c.costFS:Show()
-        y = y + (c.costFS:GetStringHeight() or 14) + 8
-    else
-        c.costBtn:Hide(); c.costFS:Hide()
-    end
 
     for _, tier in ipairs(tiers) do
         hidx = hidx + 1

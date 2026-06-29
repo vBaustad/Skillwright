@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2
+
+- Removed the GuildFoundMarket guild-price integration (the "Check guild prices" button, the
+  cost estimate, the price tooltips, and the side panel). Out of respect for GuildFoundMarket's
+  author, Skillwright no longer queries its market channel. Buying mats from vendors and
+  training recipes are unchanged.
+
 ## 1.1.1
 
 - Fixed `Bindings.xml` being listed in the .toc, which spammed XML warnings on load and stopped
