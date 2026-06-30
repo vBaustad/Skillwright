@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.3
+
+- **Train prompt** on the Now tab — when the next recipe isn't learned yet, the guide tells you
+  to go visit your trainer. Open the trainer and a **Train** button appears (with a count) to
+  learn the path's available recipes in one click.
+- Fixed a "tried to call the protected function `SpellStopCasting()`" error from the craft
+  auto-stop. It now cancels the remaining repeats the instant you hit the target; the one craft
+  already mid-cast finishes on its own (so you may end up a single craft over).
+
 ## 1.1.2
 
 - Removed the GuildFoundMarket guild-price integration (the "Check guild prices" button, the

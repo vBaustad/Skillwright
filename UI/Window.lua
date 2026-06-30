@@ -310,7 +310,7 @@ local function BuildWindow()
     content.craftBtn:SetScript("OnClick", function() SW.CraftCurrent() end)
     content.trainBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     content.trainBtn:SetSize(160, 22)
-    content.trainBtn:SetScript("OnClick", function() SW.TrainNeeded(ActiveProfession()) end)
+    content.trainBtn:SetScript("OnClick", function() SW.TrainPrompt(ActiveProfession()) end)
     content.buyFS:Hide(); content.buyBtn:Hide(); content.craftBtn:Hide(); content.trainBtn:Hide()
 
     tinsert(UISpecialFrames, "SkillwrightFrame")
@@ -367,6 +367,9 @@ function SW.CraftCurrent()
     -- whole step so a click always does something - the game caps it at available reagents.
     local n = plan.craftableHave or 0
     if n < 1 then n = plan.remaining or 1 end
+    -- Auto-stop at the step's skill target. We can't abort the in-flight craft, so it cancels the
+    -- repeats the moment you hit the target - one craft already casting may still finish (so you
+    -- can end a single craft over).
     local stopAt = plan.step.to
     if GetTradeSkillLine then local _, _, mr = GetTradeSkillLine(); if mr and mr < stopAt then stopAt = mr end end
     win.craftStopAt = stopAt
@@ -451,6 +454,27 @@ function SW.TrainNeeded(prof)
         local name, _, st = GetTrainerServiceInfo(i)
         if st == "available" and (not want or want[name]) then BuyTrainerService(i) end
     end
+end
+
+-- How many of the path's recipes the trainer is offering right now (only meaningful while a
+-- trainer window is open - GetNumTrainerServices is empty otherwise).
+function SW.TrainableCount(prof)
+    if not (GetNumTrainerServices and GetTrainerServiceInfo and SW.PATHS[prof]) then return 0 end
+    local want = {}
+    for _, s in ipairs(SW.PATHS[prof]) do want[s.recipe] = true end
+    local n, seen = 0, {}
+    for i = 1, (GetNumTrainerServices() or 0) do
+        local name, _, st = GetTrainerServiceInfo(i)
+        if st == "available" and want[name] and not seen[name] then seen[name] = true; n = n + 1 end
+    end
+    return n
+end
+
+-- The Now-panel Train button (shown only while a trainer window is open). Learn the path's
+-- available recipes, then refresh.
+function SW.TrainPrompt(prof)
+    SW.TrainNeeded(prof)
+    if win and win:IsShown() then SW.Refresh() end
 end
 
 local function RenderNow(prof, rank)
@@ -571,8 +595,8 @@ local function RenderNow(prof, rank)
         c.bankFS:Hide()
     end
 
-    -- Craft button (only when the trade window for this profession is open). The Buy button
-    -- is positioned above (under the vendor line); Train lives on the trainer window.
+    -- Craft button when the recipe is learned (its trade window is open), or a Train button when
+    -- it isn't - the recipe's missing from the open trade list, so you need to learn it first.
     c.trainBtn:Hide()
     local idx = SW.RecipeIndex(prof, s.recipe)
     if idx then
@@ -585,6 +609,18 @@ local function RenderNow(prof, rank)
         y = y + 28
     else
         c.craftBtn:Hide()
+        -- A clickable Train button only while a trainer window is open - that's the one place you
+        -- can actually learn. Away from a trainer the subtitle already says to go visit one (no
+        -- button). At the trainer the trade window is closed, so we count the trainer's services.
+        if win.trainerOpen then
+            local tx = SW.TrainableCount(prof)
+            if tx > 0 then
+                c.trainBtn:SetWidth(150)
+                c.trainBtn:SetText(tx > 1 and ("Train (%d)"):format(tx) or "Train")
+                c.trainBtn:ClearAllPoints(); c.trainBtn:SetPoint("TOPLEFT", 2, -y); c.trainBtn:Show()
+                y = y + 28
+            end
+        end
     end
 
     local steps = SW.PATHS[prof]
@@ -1231,9 +1267,8 @@ end
 -- Stop a Skillwright-initiated repeat craft the instant we hit the step's skill target. We
 -- check on both TRADE_SKILL_UPDATE and SKILL_LINES_CHANGED: the former can miss the exact
 -- skill-up tick during a fast repeat, while SKILL_LINES_CHANGED fires reliably on every skill
--- gain - exactly when we want to stop. StopTradeSkillRepeat cancels the queued repeats;
--- SpellStopCasting aborts the one extra craft that may already be casting (its mats aren't
--- consumed until it finishes, so we save them).
+-- gain - exactly when we want to stop. StopTradeSkillRepeat cancels the queued repeats; the one
+-- craft already mid-cast finishes on its own (we can't abort it from an addon).
 local function MaybeStopCraft()
     if not (win and win.craftStopAt and GetTradeSkillLine) then return end
     local _, cr = GetTradeSkillLine()
@@ -1246,8 +1281,10 @@ local function MaybeStopCraft()
         return
     end
     win.craftStopAt, win.craftRecipe = nil, nil
-    if StopTradeSkillRepeat then StopTradeSkillRepeat() end   -- cancel the queued repeats
-    if SpellStopCasting then SpellStopCasting() end           -- abort the one extra craft mid-cast
+    -- StopTradeSkillRepeat (allowed) cancels the queued repeats so no further crafts start. We do
+    -- NOT call SpellStopCasting - it's a protected function addons can't call (ADDON_ACTION_FORBIDDEN),
+    -- so the one craft already mid-cast just finishes on its own.
+    if StopTradeSkillRepeat then StopTradeSkillRepeat() end
     msg(("reached skill %d - stopped crafting. Train or move to the next step."):format(cr))
 end
 

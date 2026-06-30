@@ -2,7 +2,7 @@
 ## Title: Skillwright
 ## Notes: Profession leveling helper - the optimal craft path to max skill, with a live shopping list.
 ## Author: vebjorn
-## Version: 1.1.2
+## Version: 1.1.3
 ## SavedVariables: SkillwrightDB
 ## SavedVariablesPerCharacter: SkillwrightCharDB
 ## IconTexture: Interface\AddOns\Skillwright\emblem
