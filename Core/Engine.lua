@@ -179,10 +179,14 @@ end
 
 -- Set of recipe names you've already learned, but only when this profession's trade
 -- window is open (otherwise we can't read the list). nil = "can't tell right now".
+-- The set of recipe names in the currently-open trade window. This is only a display hint
+-- ("have you learned this step's recipe?"), so we scan whichever trade window is open instead of
+-- demanding an exact profession-name match: GetTradeSkillLine()'s name doesn't always equal our
+-- stored profession name, and that mismatch used to make the "you haven't trained this yet" hint
+-- silently never appear. (RecipeIndex, which drives actual crafting, keeps its strict match.)
 function SW.KnownRecipes(prof)
-    if not GetNumTradeSkills or not GetTradeSkillInfo then return nil end
-    local open = GetTradeSkillLine and GetTradeSkillLine()
-    if open ~= prof then return nil end
+    if not (GetNumTradeSkills and GetTradeSkillInfo and GetTradeSkillLine) then return nil end
+    if not GetTradeSkillLine() then return nil end   -- no trade window open at all
     local n = GetNumTradeSkills()
     if not n or n == 0 then return nil end
     local set, count = {}, 0

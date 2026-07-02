@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4
+
+- **"You haven't trained this yet" now shows reliably.** When the current step's recipe isn't in
+  your open trade window, the guide marks it **Train:** and points you to your trainer — before,
+  it could stay silent, so a not-yet-trained step (like Heavy Leather) just looked broken.
+
 ## 1.1.3
 
 - **Train prompt** on the Now tab — when the next recipe isn't learned yet, the guide tells you
