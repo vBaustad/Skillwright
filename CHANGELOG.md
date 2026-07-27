@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.5
+
+- **Settings open again on patch 1.15.9.** Clicking Settings did nothing and threw an error.
+  The patch changed how addons open their options page - it now needs a numeric category ID,
+  and Skillwright was handing it a name.
+- Opening settings **during combat** no longer throws a "blocked" error. The game protects the
+  options panel in combat, so Skillwright now just says to try again after the fight.
+- Updated for game version **1.15.9**.
+
 ## 1.1.4
 
 - **"You haven't trained this yet" now shows reliably.** When the current step's recipe isn't in

@@ -132,7 +132,10 @@ local function BuildOptions()
 
     if Settings and Settings.RegisterCanvasLayoutCategory then
         local cat = Settings.RegisterCanvasLayoutCategory(panel, "Skillwright")
-        cat.ID = "Skillwright"
+        -- Do NOT overwrite cat.ID with our addon name. As of 1.15.9 / 2.5.6,
+        -- Settings.OpenToCategory forwards the ID straight to the C function
+        -- C_SettingsUtil.OpenSettingsPanel(), which only accepts a number - a
+        -- string ID throws "bad argument #1 ... outside of expected range".
         Settings.RegisterAddOnCategory(cat)
         SW.optCategory = cat
     elseif InterfaceOptions_AddCategory then
@@ -142,8 +145,16 @@ end
 
 function SW.OpenOptions()
     BuildOptions()
+    -- C_SettingsUtil.OpenSettingsPanel() (what Settings.OpenToCategory calls since
+    -- 1.15.9) is protected, so opening the panel from addon code during combat is
+    -- blocked. Bail out with a note instead of throwing ADDON_ACTION_BLOCKED.
+    if InCombatLockdown() then
+        print("|cff7fc8ffSkillwright|r: settings can't be opened during combat.")
+        return
+    end
     if Settings and Settings.OpenToCategory and SW.optCategory then
-        Settings.OpenToCategory(SW.optCategory.ID or SW.optCategory:GetID())
+        local id = SW.optCategory.GetID and SW.optCategory:GetID() or SW.optCategory.ID
+        Settings.OpenToCategory(id)
     elseif InterfaceOptionsFrame_OpenToCategory and panel then
         InterfaceOptionsFrame_OpenToCategory(panel)
         InterfaceOptionsFrame_OpenToCategory(panel)
