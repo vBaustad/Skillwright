@@ -1,31 +1,30 @@
-## Interface: 11509
+## Interface: 120100, 120105
 ## Title: Skillwright
-## Notes: Profession leveling helper - the optimal craft path to max skill, with a live shopping list.
+## Notes: Profession leveling for WoW: Forever - the cheapest or fastest route to max skill, planned from the game's own recipe data and live prices.
 ## Author: vebjorn
-## Version: 1.1.5
+## Version: 0.1.0
 ## SavedVariables: SkillwrightDB
 ## SavedVariablesPerCharacter: SkillwrightCharDB
-## IconTexture: Interface\AddOns\Skillwright\emblem
+## IconTexture: Interface\AddOns\Skillwright\Media\notch
+## AddonCompartmentFunc: Skillwright_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: Skillwright_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: Skillwright_OnAddonCompartmentLeave
 ## X-Category: Professions
-## X-Website: https://github.com/vBaustad/Skillwright
 ## X-License: MIT
-## X-Curse-Project-ID: 1585659
+
+Libs\LibStub\LibStub.lua
+Libs\LibForever-1.0\LibForever-1.0.lua
+Libs\LibForever-1.0\Launcher.lua
 
 Core\Core.lua
-Core\Engine.lua
-UI\Window.lua
-UI\Options.lua
-UI\Dashboard.lua
+Data\Recipes.lua
+Data\Items.lua
+Core\Solver.lua
+Core\Professions.lua
+Core\Prices.lua
+Core\Trainer.lua
+Core\Plan.lua
 
-Data\Alchemy.lua
-Data\Blacksmithing.lua
-Data\Cooking.lua
-Data\Enchanting.lua
-Data\Engineering.lua
-Data\First Aid.lua
-Data\Fishing.lua
-Data\Herbalism.lua
-Data\Leatherworking.lua
-Data\Mining.lua
-Data\Skinning.lua
-Data\Tailoring.lua
+UI\Widgets.lua
+UI\Window.lua
+UI\Launcher.lua

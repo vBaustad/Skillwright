@@ -1,142 +1,189 @@
--- Skillwright - core: shared namespace, saved variables, and the data registration API.
+-- Skillwright - core: namespace, saved variables, events and slash commands.
 -- Everything cross-file hangs off the SW table (the addon's second vararg).
 local ADDON, SW = ...
+_G.Skillwright = SW
 
-SW.version = GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version") or "0.4.0"
+local LIB = LibStub("LibForever-1.0")
+SW.LIB = LIB
 
--- Key Bindings UI labels (Esc -> Key Bindings -> Skillwright). The bindings themselves live in
--- Bindings.xml and call the SkillwrightToggle* globals defined in the UI files.
-BINDING_HEADER_SKILLWRIGHT = "Skillwright"
-BINDING_NAME_SKILLWRIGHT_DASHBOARD = "Toggle dashboard"
-BINDING_NAME_SKILLWRIGHT_GUIDE = "Toggle guide window"
+local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+SW.VERSION = (getMeta and getMeta(ADDON, "Version")) or "0.0.0"
 
--- [professionName] = { { from, to, qty, recipe, vendorPattern?, mats={ {name, total, itemId}, ... } }, ... }
-SW.PATHS = {}
-function SW.RegisterPath(profession, steps) SW.PATHS[profession] = steps end
-
--- Gathering professions level by farming routes, not crafting. ROUTES[prof] = ordered
--- segments { from, to, faction?, zones={...}, note? }.
-SW.ROUTES = {}
-function SW.RegisterRoute(profession, segments) SW.ROUTES[profession] = segments end
-
--- True if Skillwright has any guide data (craft path or gathering route) for a profession.
-function SW.HasGuide(profession) return SW.PATHS[profession] ~= nil or SW.ROUTES[profession] ~= nil end
-
--- Trainer rank tiers (Classic primary professions all gate at 75/150/225). Used to split
--- the Steps and Shopping views into "1-75 do this, 75-150 do this" sections.
-SW.TIERS = { { 1, 75, "Apprentice" }, { 75, 150, "Journeyman" }, { 150, 225, "Expert" }, { 225, 300, "Artisan" } }
-
--- Mats you can simply buy from a profession supplier (threads, dyes, vials, flux, salt).
--- Used to split "farm this" from "just buy this" and to power the vendor buy calculation.
-SW.VENDOR_MATS = {
-    [2320] = true, [2321] = true, [4291] = true, [8343] = true, [14341] = true, -- threads
-    [2604] = true, [2605] = true, [2871] = true, [4341] = true,                 -- dyes (gray, green, black, red)
-    [6260] = true, [6261] = true,                                               -- dyes (blue, orange)
-    [2324] = true,                                                              -- Bleach
-    [3372] = true, [3371] = true, [8925] = true,                                -- vials (empty, leaded, crystal)
-    [2880] = true,                                                             -- Weak Flux
-    [2692] = true,                                                              -- salt
-    [159]  = true,                                                              -- Refreshing Spring Water (cooking)
-}
-function SW.IsVendorMat(id) return (id and SW.VENDOR_MATS[id]) and true or false end
-
--- Recognised professions (used by the dashboard to detect what a character has).
-SW.PROFESSIONS = {
-    "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Herbalism",
-    "Leatherworking", "Mining", "Skinning", "Tailoring",
-    "Cooking", "First Aid", "Fishing",
-}
-SW.PROF_ICON = {
-    Alchemy = "Interface\\Icons\\Trade_Alchemy",
-    Blacksmithing = "Interface\\Icons\\Trade_BlackSmithing",
-    Enchanting = "Interface\\Icons\\Trade_Engraving",
-    Engineering = "Interface\\Icons\\Trade_Engineering",
-    Herbalism = "Interface\\Icons\\Trade_Herbalism",
-    Leatherworking = "Interface\\Icons\\Trade_LeatherWorking",
-    Mining = "Interface\\Icons\\Trade_Mining",
-    Skinning = "Interface\\Icons\\INV_Misc_Pelt_Wolf_01",
-    Tailoring = "Interface\\Icons\\Trade_Tailoring",
-    Cooking = "Interface\\Icons\\INV_Misc_Food_15",
-    ["First Aid"] = "Interface\\Icons\\INV_Misc_Bandage_08",
-    Fishing = "Interface\\Icons\\Trade_Fishing",
-}
-function SW.ProfIcon(name) return SW.PROF_ICON[name] or "Interface\\Icons\\INV_Misc_QuestionMark" end
-
--- Gathering professions level by gathering, not crafting, so they never get a craft path.
-SW.GATHERING = { Herbalism = true, Mining = true, Skinning = true, Fishing = true }
-
--- Window appearance settings, applied to every registered Skillwright window.
-SW._windows = {}
-function SW.RegisterWindow(f) SW._windows[#SW._windows + 1] = f end
-
--- Warm cream used for titles (matches the polished look of frames like FreshSoD).
 SW.CREAM = "ffebdec2"
+SW.GOLD = "ffe6b34d"
+SW.GRAY = "ff8a8a8a"
 
--- Atmospheric panel backdrop. We borrow the Group Finder's own scene off its live frame
--- (LFGBrowseFrameFrameBackground in the Blizzard_GroupFinder_VanillaStyle addon); if that
--- isn't available we fall back to a stock marble texture that always renders.
-SW.SCENE = "Interface\\FrameGeneral\\UI-Background-Marble"
+-- Crafting professions Skillwright plans, by skill line ID (the IDs the data and the client share).
+SW.PROFESSIONS = {
+    [171] = { name = "Alchemy", icon = "Interface\\Icons\\Trade_Alchemy" },
+    [164] = { name = "Blacksmithing", icon = "Interface\\Icons\\Trade_BlackSmithing" },
+    [185] = { name = "Cooking", icon = "Interface\\Icons\\INV_Misc_Food_15" },
+    [333] = { name = "Enchanting", icon = "Interface\\Icons\\Trade_Engraving" },
+    [202] = { name = "Engineering", icon = "Interface\\Icons\\Trade_Engineering",
+              specs = { "Gnomish", "Goblin" } },
+    [129] = { name = "First Aid", icon = "Interface\\Icons\\INV_Misc_Bandage_08" },
+    [165] = { name = "Leatherworking", icon = "Interface\\Icons\\Trade_LeatherWorking",
+              specs = { "Dragonscale", "Elemental", "Tribal" } },
+    [197] = { name = "Tailoring", icon = "Interface\\Icons\\Trade_Tailoring" },
+}
+-- Every profession line, so ranks of gathering professions don't get mistaken for crafting ones.
+SW.ALL_LINES = { [164] = true, [165] = true, [171] = true, [182] = true, [185] = true, [186] = true,
+                 [197] = true, [202] = true, [333] = true, [356] = true, [393] = true, [129] = true }
 
--- Returns (atlas, file) for the Group Finder background, loading that Blizzard addon if needed.
-function SW.SceneSource()
-    local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
-    if load then pcall(load, "Blizzard_GroupFinder_VanillaStyle") end
-    for _, n in ipairs({ "LFGBrowseFrameBackgroundArt", "LFGBrowseFrameFrameBackground", "LFGBrowseFrameFrameBackgroundBottom" }) do
-        local r = _G[n]
-        if r then
-            local atlas = r.GetAtlas and r:GetAtlas()
-            if atlas and atlas ~= "" then return atlas, nil end
-            local file = r.GetTexture and r:GetTexture()
-            if file and file ~= "" then return nil, file end
-        end
+-- Vanilla trainer tiers: the rank cap each one lifts and the skill needed to learn it.
+SW.TIERS = {
+    { cap = 75, name = "Apprentice", need = 1 },
+    { cap = 150, name = "Journeyman", need = 50 },
+    { cap = 225, name = "Expert", need = 125 },
+    { cap = 300, name = "Artisan", need = 200 },
+}
+SW.MAX_RANK = 300
+
+function SW.ProfName(id)
+    local db = SW.DB()
+    return (db.profNames and db.profNames[id]) or (SW.PROFESSIONS[id] and SW.PROFESSIONS[id].name) or ("Profession " .. tostring(id))
+end
+function SW.ProfIcon(id)
+    return SW.PROFESSIONS[id] and SW.PROFESSIONS[id].icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+function SW.msg(fmt, ...)
+    local text = select("#", ...) > 0 and fmt:format(...) or fmt
+    print("|cffe6b34dSkillwright|r: " .. text)
+end
+
+function SW.dbg(fmt, ...)
+    if SW.debug then SW.msg("|cff888888" .. fmt .. "|r", ...) end
+end
+
+function SW.Now() return GetServerTime() end
+
+function SW.Money(copper)
+    copper = math.floor((copper or 0) + 0.5)
+    if GetCoinTextureString then return GetCoinTextureString(copper) end
+    return ("%dg %ds %dc"):format(copper / 10000, (copper / 100) % 100, copper % 100)
+end
+
+-- Short money text for tight rows: "12g", "4s 20c", "35c".
+function SW.MoneyShort(copper)
+    copper = math.floor((copper or 0) + 0.5)
+    local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+    if g >= 100 then return ("|cffffd100%dg|r"):format(g) end
+    if g > 0 then return ("|cffffd100%dg|r |cffc7c7cf%ds|r"):format(g, s) end
+    if s > 0 then return ("|cffc7c7cf%ds|r |cffeda55f%dc|r"):format(s, c) end
+    return ("|cffeda55f%dc|r"):format(c)
+end
+
+-- ---------------------------------------------------------------------------
+-- Events and internal callbacks (thin wrappers over LibForever)
+-- ---------------------------------------------------------------------------
+SW.On = LIB.On
+SW.Debounce = LIB.Debounce
+
+local listeners = {}
+function SW.Listen(name, fn)
+    listeners[name] = listeners[name] or {}
+    table.insert(listeners[name], fn)
+end
+function SW.Fire(name, ...)
+    local list = listeners[name]
+    if not list then return end
+    for i = 1, #list do
+        local ok, err = pcall(list[i], ...)
+        if not ok then SW.dbg("%s: %s", name, tostring(err)) end
     end
 end
 
-function SW.ApplyScene(tex)
-    local atlas, file = SW.SceneSource()
-    if atlas then pcall(tex.SetAtlas, tex, atlas, false)
-    elseif file then tex:SetTexture(file)
-    else tex:SetTexture(SW.SCENE) end
-end
+-- ---------------------------------------------------------------------------
+-- Saved variables
+-- ---------------------------------------------------------------------------
+-- Account-wide: settings plus facts learned from the game, shared by every character.
+local DEFAULTS = {
+    settings = {
+        mode = "cheap",          -- "cheap" or "fast"
+        allowCamp = false,       -- plan recipes that need a Forever camp station
+        attach = true,           -- open beside the profession window
+        autoOpen = true,         -- open with the profession window
+        hideMinimap = false,
+        minimapAngle = 215,
+        maxPriceAge = 3,         -- days before an auction price counts as stale
+    },
+    learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers
+    trainerSeen = {},            -- [recipeSpellID] = true when a trainer offers it
+    specReq = {},                -- [recipeSpellID] = specialization name a trainer asked for
+    vendor = {},                 -- [itemID] = unit price seen on a merchant
+    ah = {},                     -- [itemID] = { unitPrice, scannedAt }
+    ahScanned = 0,
+    profNames = {},              -- [skillLineID] = localized name
+}
 
--- Float an ornate gold border just outside a frame (decorative only - clicks pass through).
-function SW.Decorate(frame, outset)
-    if frame.deco then return frame.deco end
-    outset = outset or 7
-    local b = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    b:SetPoint("TOPLEFT", -outset, outset)
-    b:SetPoint("BOTTOMRIGHT", outset, -outset)
-    b:SetFrameLevel(frame:GetFrameLevel() + 4)
-    b:EnableMouse(false)
-    b:SetBackdrop({ edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 28, tile = true, tileSize = 28 })
-    frame.deco = b
-    return b
-end
-function SW.ApplyWindowSettings()
-    local a, sc = SW.DB().alpha or 1, SW.DB().scale or 1
-    local showBg = SW.DB().showBackground ~= false
-    local sceneA = SW.DB().sceneAlpha or 1
-    for _, f in ipairs(SW._windows) do
-        if f then
-            f:SetAlpha(a); f:SetScale(sc)
-            if f.sceneBg then f.sceneBg:SetShown(showBg); f.sceneBg:SetAlpha(sceneA) end
-        end
-    end
-end
-
-function SW.msg(t) print("|cff7fc8ffSkillwright|r: " .. t) end
-
--- Account-wide settings (window position, active profession, view, collapsed).
--- pos = { x = <screen left>, y = <screen top> } shared by every view; empty = centered.
 function SW.DB()
     SkillwrightDB = SkillwrightDB or {}
-    SkillwrightDB.pos = SkillwrightDB.pos or {}
-    return SkillwrightDB
+    local db = SkillwrightDB
+    for k, v in pairs(DEFAULTS) do
+        if db[k] == nil then db[k] = (type(v) == "table") and CopyTable(v) or v end
+    end
+    for k, v in pairs(DEFAULTS.settings) do
+        if db.settings[k] == nil then db.settings[k] = v end
+    end
+    return db
 end
 
--- Per-character data (last-known profession skill ranks).
+function SW.Settings() return SW.DB().settings end
+
+-- Per character: profession ranks, learned recipes, chosen specialization, excluded recipes.
 function SW.CharDB()
     SkillwrightCharDB = SkillwrightCharDB or {}
-    SkillwrightCharDB.skill = SkillwrightCharDB.skill or {}
-    return SkillwrightCharDB
+    local c = SkillwrightCharDB
+    c.profs = c.profs or {}      -- [skillLineID] = { rank, max, known = { [spell] = true }, spec, exclude = {} }
+    return c
+end
+
+function SW.CharProf(id)
+    local profs = SW.CharDB().profs
+    local p = profs[id]
+    if not p then
+        p = { rank = 0, max = 0, known = {}, exclude = {} }
+        profs[id] = p
+    end
+    p.known = p.known or {}
+    p.exclude = p.exclude or {}
+    return p
+end
+
+-- ---------------------------------------------------------------------------
+-- Startup
+-- ---------------------------------------------------------------------------
+SW.On("PLAYER_LOGIN", function()
+    if not C_Weather then
+        SW.msg("|cffff6060made for WoW: Forever - it won't work properly in this version of the game.|r")
+    end
+    SW.DB()
+    SW.CharDB()
+    SW.Fire("LOGIN")
+end)
+
+-- ---------------------------------------------------------------------------
+-- Slash commands
+-- ---------------------------------------------------------------------------
+SLASH_SKILLWRIGHT1 = "/skillwright"
+SLASH_SKILLWRIGHT2 = "/sw"
+SlashCmdList.SKILLWRIGHT = function(input)
+    local cmd, rest = strtrim(input or ""):match("^(%S*)%s*(.-)$")
+    cmd = (cmd or ""):lower()
+    if cmd == "" then
+        SW.ToggleWindow()
+    elseif cmd == "config" or cmd == "options" or cmd == "settings" then
+        SW.ShowWindow(nil, "settings")
+    elseif cmd == "cheap" or cmd == "fast" then
+        SW.SetMode(cmd)
+    elseif cmd == "prices" then
+        SW.Prices.PrintStatus()
+    elseif cmd == "debug" then
+        SW.debug = not SW.debug
+        SW.msg("debug %s", SW.debug and "on" or "off")
+    else
+        SW.msg("|cffffd100/sw|r guide, |cffffd100/sw cheap|r or |cffffd100/sw fast|r route mode, "
+            .. "|cffffd100/sw prices|r price sources, |cffffd100/sw config|r settings")
+    end
 end
