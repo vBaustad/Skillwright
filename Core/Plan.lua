@@ -6,6 +6,10 @@ SW.Plan = Plan
 
 local cache = {}    -- [prof] = route
 
+function Plan.Count(id, withBank)
+    return C_Item.GetItemCount(id, withBank) or 0
+end
+
 function Plan.Invalidate(prof)
     if prof then cache[prof] = nil else wipe(cache) end
     SW.Fire("PLAN_CHANGED", prof)
@@ -42,9 +46,34 @@ function Plan.Options(prof, from)
         vendorPrices = db.vendor,
         market = SW.Prices.Market,
         allowCamp = s.allowCamp,
+        preferVendor = s.preferVendor,
+        owned = Plan.OwnedTools(),
         spec = Plan.Spec(prof),
-        exclude = cp.exclude,
     }
+end
+
+-- Tools the character has (bags or bank): rods, hammers, spanners ...
+local ownedSig
+function Plan.OwnedTools()
+    local owned, sig = {}, {}
+    for _, t in pairs(SW.Data.tools or {}) do
+        for _, id in ipairs(t[3]) do
+            if Plan.Count(id, true) > 0 then
+                owned[id] = true
+                sig[#sig + 1] = id
+            end
+        end
+    end
+    table.sort(sig)
+    return owned, table.concat(sig, ",")
+end
+
+-- The first tool a step still needs, live (it disappears the moment the tool is in your bags).
+function Plan.PendingTool(step, owned)
+    owned = owned or Plan.OwnedTools()
+    for _, t in ipairs(step.prereqs or {}) do
+        if not SW.Solver.HasTool(t.category, owned) then return t end
+    end
 end
 
 -- The route for a profession from the character's current rank. Solved from rank 1 for professions
@@ -71,11 +100,7 @@ function Plan.StepIndex(route, rank)
     return #route.steps + 1
 end
 
-local function Count(id, withBank)
-    if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(id, withBank) or 0 end
-    return GetItemCount(id, withBank) or 0
-end
-Plan.Count = Count
+local Count = function(...) return Plan.Count(...) end
 
 -- Expected crafts left in a step from `rank` (the solver's numbers, re-summed from where you are now).
 function Plan.CraftsLeft(step, rank)
@@ -99,8 +124,15 @@ function Plan.Current(prof)
     local step = route.steps[idx]
     if not step then return { route = route, done = true, rank = rank } end
     local left = math.max(1, Plan.CraftsLeft(step, rank))
+    -- A tool still to make (or buy) comes first: the step can't be crafted without it.
+    local tool = Plan.PendingTool(step)
+    local srcMats = step.mats
+    if tool then
+        left = 1
+        srcMats = tool.mats
+    end
     local mats, craftable = {}, nil
-    for _, m in ipairs(step.mats) do
+    for _, m in ipairs(srcMats) do
         local need = m.per * left
         local have = Count(m.id, true)
         local bags = Count(m.id, false)
@@ -109,11 +141,13 @@ function Plan.Current(prof)
         local can = math.floor(bags / m.per)
         craftable = craftable and math.min(craftable, can) or can
     end
+    local craftSpell = tool and tool.spell or step.spell
     return {
-        route = route, idx = idx, step = step, rank = rank, left = left, mats = mats,
-        craftable = math.min(craftable or 0, left),
-        known = SW.Prof.Knows(prof, step.spell),
-        color = SW.Solver.Color(step.yellow, step.grey, rank),
+        route = route, idx = idx, step = step, rank = rank, left = left, mats = mats, tool = tool,
+        craftable = math.min(craftable or (tool and 1 or 0), left),
+        known = craftSpell and SW.Prof.Knows(prof, craftSpell) or false,
+        color = tool and tool.yellow and SW.Solver.Color(tool.yellow, tool.grey, rank)
+            or SW.Solver.Color(step.yellow, step.grey, rank),
     }
 end
 
@@ -122,6 +156,7 @@ function Plan.Shopping(prof)
     local route = Plan.Route(prof)
     if not route then return {} end
     local rank = math.max(1, SW.Prof.Rank(prof))
+    local owned = Plan.OwnedTools()
     local groups, byTier = {}, {}
     for _, s in ipairs(route.steps) do
         if rank < s.to then
@@ -137,16 +172,26 @@ function Plan.Shopping(prof)
                 groups[#groups + 1] = g
             end
             local crafts = rank > s.from and Plan.CraftsLeft(s, rank) or s.crafts
-            for _, m in ipairs(s.mats) do
-                local e = g.mats[m.id]
+            local function add(id, qty, unit, src)
+                local e = g.mats[id]
                 if not e then
-                    e = { id = m.id, need = 0, unit = m.unit, priceSource = m.priceSource }
-                    g.mats[m.id] = e
+                    e = { id = id, need = 0, unit = unit, priceSource = src }
+                    g.mats[id] = e
                     g.order[#g.order + 1] = e
                 end
-                e.need = e.need + m.per * crafts
-                g.cost = g.cost + m.per * crafts * m.unit
+                e.need = e.need + qty
+                g.cost = g.cost + qty * unit
             end
+            for _, t in ipairs(s.prereqs or {}) do
+                if not SW.Solver.HasTool(t.category, owned) then
+                    if t.buy then
+                        add(t.item, 1, t.cost or 0, "vendor")
+                    else
+                        for _, m in ipairs(t.mats) do add(m.id, m.per, m.unit, m.priceSource) end
+                    end
+                end
+            end
+            for _, m in ipairs(s.mats) do add(m.id, m.per * crafts, m.unit, m.priceSource) end
         end
     end
     for _, g in ipairs(groups) do
@@ -163,12 +208,16 @@ function Plan.Remaining(prof)
     local route = Plan.Route(prof)
     if not route then return 0, 0 end
     local rank = math.max(1, SW.Prof.Rank(prof))
+    local owned = Plan.OwnedTools()
     local crafts, cost = 0, 0
     for _, s in ipairs(route.steps) do
         if rank < s.to then
             local n = rank > s.from and Plan.CraftsLeft(s, rank) or s.crafts
             crafts = crafts + n
             cost = cost + n * s.costEach
+            for _, t in ipairs(s.prereqs or {}) do
+                if not SW.Solver.HasTool(t.category, owned) then cost = cost + (t.cost or 0) end
+            end
         end
     end
     return crafts, cost
@@ -192,6 +241,12 @@ for _, ev in ipairs({ "RECIPES_CHANGED", "TRAINER_FACTS", "PRICES_CHANGED" }) do
         if type(prof) == "number" then Plan.Invalidate(prof) else Plan.Invalidate() end
     end)
 end
+-- A tool arriving in (or leaving) the bags changes which recipes are possible.
+SW.On("BAG_UPDATE_DELAYED", function()
+    local _, sig = Plan.OwnedTools()
+    if ownedSig and sig ~= ownedSig then Plan.Invalidate() end
+    ownedSig = sig
+end)
 -- Vendor prices change the plan only a little; re-plan when the merchant closes.
 SW.Listen("MERCHANT_CHANGED", function()
     if not (MerchantFrame and MerchantFrame:IsShown()) then SW.Debounce("replanVendor", 1, function() Plan.Invalidate() end) end

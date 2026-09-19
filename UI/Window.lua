@@ -1,5 +1,5 @@
 -- Skillwright - the guide window: Now / Route / Shopping / Settings.
--- Opens beside the profession window for that profession, or on its own from /sw and the launcher.
+-- Opens beside the profession window for that profession, or on its own from /skw and the minimap button.
 local ADDON, SW = ...
 local U = SW.UI
 local Plan = SW.Plan
@@ -34,6 +34,54 @@ end
 -- ---------------------------------------------------------------------------
 -- Now
 -- ---------------------------------------------------------------------------
+-- Click on an enchant's target slot (full and minimal view): pick the item from a menu, right-click clears.
+local function TargetSlotClick(self, button)
+    local spell = self.spell
+    if not spell then return end
+    if button == "RightButton" then
+        SW.Enchant.choice[spell] = false
+        SW.RefreshWindow()
+        return
+    end
+    local current, targets = SW.Enchant.Target(spell)
+    if not targets or #targets == 0 then return end
+    MenuUtil.CreateContextMenu(self, function(_, root)
+        root:CreateTitle("Enchant onto")
+        for _, t in ipairs(targets) do
+            local label = ("|T%s:16|t %s%s"):format(U.ItemIcon(t.id), t.link or ItemText(t.id),
+                t.equipped and " |cffff6060(worn)|r" or "")
+            root:CreateRadio(label, function() return current and current.guid == t.guid end, function()
+                SW.Enchant.choice[spell] = t.guid
+                SW.RefreshWindow()
+            end)
+        end
+        root:CreateRadio("No target", function() return current == nil end, function()
+            SW.Enchant.choice[spell] = false
+            SW.RefreshWindow()
+        end)
+    end)
+end
+
+-- The Craft button's job for a step (full and minimal view): what it crafts and what it says.
+local function CraftClick(self)
+    if self.spell and self.n and self.n > 0 then SW.CraftStep(self.spell, self.n, self.enchant) end
+end
+
+local function SetupCraftButton(btn, cur, prof)
+    local s, tool = cur.step, cur.tool
+    local isEnchant = not tool and SW.Enchant.IsEnchant(s)
+    local n = cur.craftable
+    btn.spell, btn.n, btn.enchant = tool and tool.spell or s.spell, n, isEnchant
+    if n <= 0 then
+        btn:SetText("Missing materials")
+    elseif isEnchant and SW.Enchant.OneAtATime(s.spell) then
+        btn:SetText(("Enchant  (%d left)"):format(cur.left))   -- onto an item the game takes one click per cast
+    else
+        btn:SetText(("Craft %d"):format(n))
+    end
+    btn:SetEnabled(n > 0)
+end
+
 local function BuildNow(f)
     local sf = U.Scroll(f)
     sf:SetPoint("TOPLEFT", 0, 0)
@@ -43,10 +91,10 @@ local function BuildNow(f)
 
     c.icon = U.IconButton(c, 40)
     c.icon:SetPoint("TOPLEFT", 4, -4)
-    c.title = U.Text(c, "GameFontNormalLarge")
+    c.title = U.Text(c, "GameFontNormalLarge", "LEFT", true)
     c.title:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 10, -1)
     c.title:SetPoint("RIGHT", c, "RIGHT", -4, 0)
-    c.sub = U.Text(c, "GameFontHighlight")
+    c.sub = U.Text(c, "GameFontHighlight", "LEFT", true)
     c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
     c.sub:SetPoint("RIGHT", c, "RIGHT", -4, 0)
 
@@ -57,24 +105,61 @@ local function BuildNow(f)
     c.info = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
 
     c.craftBtn = U.Button(c, "Craft", 110, 24)
-    c.craftBtn:SetScript("OnClick", function(self)
-        if self.spell and self.n and self.n > 0 then C_TradeSkillUI.CraftRecipe(self.spell, self.n) end
-    end)
-    c.buyBtn = U.Button(c, "Buy materials", 120, 24)
-    c.buyBtn:SetScript("OnClick", function(self)
-        for _, m in ipairs(self.list or {}) do SW.Prices.Buy(m.id, m.qty) end
-    end)
-    c.buyBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Buy from this merchant", 1, 0.82, 0.3)
-        local total = 0
-        for _, m in ipairs(self.list or {}) do
-            GameTooltip:AddDoubleLine(m.qty .. " x " .. ItemText(m.id), SW.MoneyShort(m.qty * m.unit), 1, 1, 1, 1, 1, 1)
-            total = total + m.qty * m.unit
+    c.craftBtn:SetScript("OnClick", CraftClick)
+
+    -- Enchants: the item it goes on, as a slot like the profession window's "Optional Target"
+    c.targetLabel = U.Text(c, "GameFontNormal")
+    c.targetLabel:SetText("Optional Target:")
+    local slot = CreateFrame("Button", nil, c)
+    slot:SetSize(36, 36)
+    slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    slot.bg = slot:CreateTexture(nil, "BACKGROUND")
+    slot.bg:SetAllPoints()
+    slot.bg:SetTexture("Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+    slot.icon = slot:CreateTexture(nil, "ARTWORK")
+    slot.icon:SetPoint("TOPLEFT", 2, -2)
+    slot.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    slot.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    slot.plus = slot:CreateFontString(nil, "OVERLAY", "GameFontGreenLarge")
+    slot.plus:SetPoint("BOTTOMRIGHT", -1, 0)
+    slot.plus:SetText("+")
+    local shl = slot:CreateTexture(nil, "HIGHLIGHT")
+    shl:SetAllPoints()
+    shl:SetColorTexture(1, 1, 1, 0.12)
+    slot:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.link then
+            GameTooltip:SetHyperlink(self.link)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click: choose another item.  Right-click: no target.", 0.7, 0.7, 0.7, true)
+        else
+            GameTooltip:AddLine("Select Item to Enchant", 1, 0.82, 0.3)
+            GameTooltip:AddLine("Pick an item from your bags for Craft to enchant.", 0.85, 0.85, 0.85, true)
         end
-        GameTooltip:AddDoubleLine("Total", SW.MoneyShort(total), 1, 0.82, 0.3, 1, 1, 1)
         GameTooltip:Show()
     end)
+    slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    slot:SetScript("OnClick", TargetSlotClick)
+    c.targetSlot = slot
+    c.targetText = U.Text(c, "GameFontHighlight", "LEFT", true)
+    -- Same setting as in Settings, right where it matters
+    c.autoCB = U.Checkbox(c, "Say Yes to \"replace enchant\" automatically")
+    c.autoCB.label:SetFontObject("GameFontHighlightSmall")
+    c.autoCB:SetScript("OnClick", function(self)
+        SW.Settings().autoReplaceEnchant = self:GetChecked() and true or false
+    end)
+    c.autoCB:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Replace enchant", 1, 0.82, 0.3)
+        GameTooltip:AddLine("Every cast onto the same item asks whether to replace the enchant it already has. "
+            .. "With this on, Skillwright answers Yes - only for casts started from its own Craft button, and "
+            .. "never for gear you are wearing.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    c.autoCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    c.buyBtn = U.Button(c, "Buy materials", 120, 24)
+    c.buyBtn:SetScript("OnClick", function(self) SW.Prices.ConfirmBuy(self.list) end)
+    c.buyBtn:SetScript("OnEnter", function(self) SW.Prices.BuyTooltip(self, self.list) end)
     c.buyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     c.trainBtn = U.Button(c, "Train", 120, 24)
     c.trainBtn:SetScript("OnClick", function(self) SW.Trainer.Train(self.list or {}) end)
@@ -85,6 +170,7 @@ local function BuildNow(f)
     c.gapText = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
     c.gap = {}
     c.total = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
+
 end
 
 local function MatCell(c, i)
@@ -109,9 +195,9 @@ local function LineRow(parent, pool, i)
     r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     r.text = U.Text(r, "GameFontHighlightSmall")
     r.text:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-    r.text:SetPoint("RIGHT", -60, 0)
     r.right = U.Text(r, "GameFontHighlightSmall", "RIGHT")
     r.right:SetPoint("RIGHT", -2, 0)
+    r.text:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     local hl = r:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
     hl:SetAtlas("Options_List_Hover")
@@ -161,9 +247,30 @@ local function RefreshNow(f)
         y = y - (gap or 0) - hh
     end
 
+    -- the recipe card is as tall as its (wrapping) title and subtitle, at least the icon
+    local function headerY()
+        return -math.max(48, c.title:GetStringHeight() + c.sub:GetStringHeight() + 14)
+    end
+    -- lay action buttons out left to right, sized to their text, wrapping to a new row when full
+    local bx, rowUsed = 4, false
+    local function placeButton(btn)
+        local fs = btn:GetFontString()
+        btn:SetWidth(math.max(96, (fs and fs:GetStringWidth() or 60) + 28))
+        if bx > 4 and bx + btn:GetWidth() > width - 4 then
+            y = y - 30
+            bx = 4
+        end
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", c, "TOPLEFT", bx, y - 8)
+        btn:Show()
+        bx = bx + btn:GetWidth() + 6
+        rowUsed = true
+    end
+
     local cp = SW.CharProf(prof)
     local have = cp.has
-    for _, w in ipairs({ c.learn, c.warn, c.matsHead, c.info, c.craftBtn, c.buyBtn, c.trainBtn, c.nextHead, c.gapHead, c.gapText, c.total }) do
+    for _, w in ipairs({ c.learn, c.warn, c.matsHead, c.info, c.craftBtn, c.buyBtn, c.trainBtn, c.nextHead, c.gapHead, c.gapText, c.total,
+                         c.targetLabel, c.targetSlot, c.targetText, c.autoCB }) do
         w:Hide()
         if w.line then w.line:Hide() end
     end
@@ -189,30 +296,41 @@ local function RefreshNow(f)
             c.title:SetText(("%s is done"):format(SW.ProfName(prof)))
             c.sub:SetText(("Skill %d."):format(cur.rank))
         end
-        y = -54
+        y = headerY()
     else
         local s = cur.step
-        c.icon:Set(s.item, s.spell, StepTooltip(s))
+        local tool = cur.tool
+        -- What the card is about: a tool to make/buy first, or the step's recipe.
+        local subject = tool or s
+        if tool then
+            c.icon:Set(tool.item, tool.spell)
+            c.title:SetText(("|cffffd100First:|r %s"):format(ItemText(tool.item)))
+            c.sub:SetText(("%s one - |cffffffff%s|r needs it."):format(tool.buy and "Buy" or "Make", U.RecipeName(s.spell)))
+        else
+            c.icon:Set(s.item, s.spell, StepTooltip(s))
+            c.title:SetText(U.Colored(cur.color, U.RecipeName(s.spell)) .. (s.qty > 1 and (" |cff8a8a8ax" .. s.qty .. "|r") or ""))
+            c.sub:SetText(("Make about |cffffffff%d|r more  |cff8a8a8a(skill %d to %d)|r"):format(cur.left, cur.rank, s.to))
+        end
         c.icon:Show()
-        c.title:SetText(U.Colored(cur.color, U.RecipeName(s.spell)) .. (s.qty > 1 and (" |cff8a8a8ax" .. s.qty .. "|r") or ""))
-        c.sub:SetText(("Make about |cffffffff%d|r more|cff8a8a8a(skill %d to %d)|r"):format(cur.left, cur.rank, s.to))
-        y = -54
+        y = headerY()
 
         -- Learned? Where from?
         local learn
         if not have then
             learn = ("|cffffd100Preview|r - you don't have %s. The plan starts from skill 1."):format(SW.ProfName(prof))
+        elseif tool and tool.buy then
+            learn = "Sold by vendors (tools usually sit with the trade supplies)."
         elseif cur.known then
             learn = "|cff40bf40Learned.|r"
         else
-            local svc = SW.Trainer.services[s.spell]
+            local svc = SW.Trainer.services[subject.spell]
             if svc and svc.type == "available" then
                 learn = "|cffff8040Not learned yet|r - this trainer teaches it."
-            elseif s.source:match("^s:") then
-                learn = ("|cffff8040Not learned yet|r - a %s specialization recipe."):format(s.source:sub(3))
+            elseif subject.source and subject.source:match("^s:") then
+                learn = ("|cffff8040Not learned yet|r - a %s specialization recipe."):format(subject.source:sub(3))
             else
                 learn = ("|cffff8040Not learned yet|r - learn it at a trainer (needs skill %d%s)."):format(
-                    s.learn, s.learnEstimated and ", estimated" or "")
+                    subject.learn or 1, subject.learnEstimated and ", estimated" or "")
             end
         end
         c.learn:SetText(learn)
@@ -244,54 +362,81 @@ local function RefreshNow(f)
             end)
             cell.count:SetText(("%s%d|r/%d"):format(m.have >= m.need and "|cff40bf40" or "|cffff6060", m.have, m.need))
             cell:Show()
-            if m.short > 0 and SW.Prices.merchant[m.id] then
-                vendorBuy[#vendorBuy + 1] = { id = m.id, qty = m.short, unit = m.unit }
-            end
+            if m.short > 0 then SW.Prices.AddToBuy(vendorBuy, m.id, m.short, m.unit) end
             if m.bank > 0 then bankLines[#bankLines + 1] = ("%d %s"):format(m.bank, ItemText(m.id)) end
             if Est(m.priceSource) then estimated = true end
         end
         local rows = math.ceil(#cur.mats / perRow)
         y = rowY - rows * 56
 
+        if tool and tool.buy then SW.Prices.AddToBuy(vendorBuy, tool.item, 1, tool.cost or 0) end
+
         local info = {}
-        info[#info + 1] = ("This step costs about %s%s."):format(Cost(s.costEach * cur.left, estimated),
-            estimated and " |cff8a8a8a(some prices are estimates)|r" or "")
+        if tool then
+            info[#info + 1] = ("It costs about %s. You only need one."):format(Cost(tool.cost or 0, estimated))
+        else
+            info[#info + 1] = ("This step costs about %s%s."):format(Cost(s.costEach * cur.left, estimated),
+                estimated and " |cff8a8a8a(some prices are estimates)|r" or "")
+            if s.vendorOnly then info[#info + 1] = "|cff40bf40Every material comes from a vendor.|r" end
+        end
         if #bankLines > 0 then info[#info + 1] = "|cff7da5ffIn your bank:|r " .. table.concat(bankLines, ", ") end
         c.info:SetText(table.concat(info, "\n"))
         place(c.info, 4, 4)
 
+        -- Enchants: which item it goes on
+        for _, w in ipairs({ c.targetLabel, c.targetSlot, c.targetText, c.autoCB }) do w:Hide() end
+        local isEnchant = not tool and SW.Enchant.IsEnchant(s)
+        if isEnchant and have and SW.Prof.IsOpen(prof) then
+            local target, targets = SW.Enchant.Target(s.spell)
+            if targets then
+                c.targetLabel:ClearAllPoints()
+                c.targetLabel:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y - 12)
+                c.targetLabel:Show()
+                local slot = c.targetSlot
+                slot.spell = s.spell
+                slot.link = target and target.link
+                slot.icon:SetShown(target ~= nil)
+                if target then slot.icon:SetTexture(U.ItemIcon(target.id)) end
+                slot.plus:SetShown(target == nil and #targets > 0)
+                slot:ClearAllPoints()
+                slot:SetPoint("TOPLEFT", c, "TOPLEFT", 6, y - 30)
+                slot:Show()
+                c.targetText:ClearAllPoints()
+                c.targetText:SetPoint("LEFT", slot, "RIGHT", 8, 0)
+                c.targetText:SetWidth(width - 70)
+                if target then
+                    c.targetText:SetText((target.link or ItemText(target.id)) .. (target.equipped and " |cffff6060(worn)|r" or ""))
+                elseif #targets == 0 then
+                    c.targetText:SetText("|cff8a8a8aNothing in your bags this can go on.|r")
+                else
+                    c.targetText:SetText("Select Item to Enchant")
+                end
+                c.targetText:Show()
+                y = y - 72
+                c.autoCB:SetChecked(SW.Settings().autoReplaceEnchant and true or false)
+                c.autoCB:ClearAllPoints()
+                c.autoCB:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y + 2)
+                c.autoCB:Show()
+                y = y - 22
+            end
+        end
+
         -- Actions
-        local x = 4
-        local anyAction = false
-        if have and cur.known and SW.Prof.IsOpen(prof) then
-            local n = cur.craftable
-            c.craftBtn.spell, c.craftBtn.n = s.spell, n
-            c.craftBtn:SetText(n > 0 and ("Craft %d"):format(n) or "Missing materials")
-            c.craftBtn:SetEnabled(n > 0)
-            c.craftBtn:ClearAllPoints()
-            c.craftBtn:SetPoint("TOPLEFT", c, "TOPLEFT", x, y - 8)
-            c.craftBtn:Show()
-            x = x + 116
-            anyAction = true
+        if have and cur.known and SW.Prof.IsOpen(prof) and not (tool and tool.buy) then
+            SetupCraftButton(c.craftBtn, cur, prof)
+            placeButton(c.craftBtn)
         end
         if #vendorBuy > 0 then
             c.buyBtn.list = vendorBuy
-            c.buyBtn:ClearAllPoints()
-            c.buyBtn:SetPoint("TOPLEFT", c, "TOPLEFT", x, y - 8)
-            c.buyBtn:Show()
-            x = x + 126
-            anyAction = true
+            placeButton(c.buyBtn)
         end
         local svcs = SW.Trainer.RouteServices(prof, route)
         if #svcs > 0 then
             c.trainBtn.list = svcs
             c.trainBtn:SetText(("Train %d recipe%s"):format(#svcs, #svcs == 1 and "" or "s"))
-            c.trainBtn:ClearAllPoints()
-            c.trainBtn:SetPoint("TOPLEFT", c, "TOPLEFT", x, y - 8)
-            c.trainBtn:Show()
-            anyAction = true
+            placeButton(c.trainBtn)
         end
-        if anyAction then y = y - 36 end
+        if rowUsed then y = y - 36 end
 
         -- Up next
         local shown = 0
@@ -320,8 +465,9 @@ local function RefreshNow(f)
     if route.gapAt and route.gapOptions then
         place(c.gapHead, 4, 12, 14)
         c.gapHead.line:Show()
-        c.gapText:SetText(("Trainer recipes stop giving skill at |cffffd100%d|r. Any of these would keep you going - "
-            .. "they come from recipes, quests or a specialization:"):format(route.gapAt))
+        c.gapText:SetText(("Trainer recipes stop giving skill at |cffffd100%d|r. Most of Forever's new recipes come "
+            .. "from recipe items whose drops and vendors aren't known yet, so the plan can only use them once you've "
+            .. "learned them. Any of these would keep you going:"):format(route.gapAt))
         place(c.gapText, 4, 4)
         y = y - 4
         for i, g in ipairs(route.gapOptions) do
@@ -374,7 +520,7 @@ local function RouteRow(f, i)
     r.range:SetWidth(52)
     r.text:ClearAllPoints()
     r.text:SetPoint("LEFT", r.range, "RIGHT", 4, 0)
-    r.text:SetPoint("RIGHT", -70, 0)
+    r.text:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     return r
 end
 
@@ -387,8 +533,27 @@ local function RefreshRoute(f)
     if not route then f.note:SetText("") return end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local y, n = -2, 0
+    local owned = Plan.OwnedTools()
     for _, s in ipairs(route.steps) do
         if s.to > rank then
+            -- tools this step needs that you don't have yet
+            for _, t in ipairs(s.prereqs or {}) do
+                if not SW.Solver.HasTool(t.category, owned) then
+                    n = n + 1
+                    local r = RouteRow(f, n)
+                    r.bg:Hide()
+                    r.icon:SetTexture(U.ItemIcon(t.item))
+                    r.range:SetText("|cffffd100tool|r")
+                    r.text:SetText(("%s %s"):format(t.buy and "Buy" or "Make", ItemText(t.item)))
+                    r.right:SetText(("x1  %s"):format(Cost(t.cost or 0, false)))
+                    r.tipItem, r.tipSpell, r.tipExtra = t.item, t.spell, nil
+                    r:ClearAllPoints()
+                    r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
+                    r:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+                    r:Show()
+                    y = y - ROW - 1
+                end
+            end
             n = n + 1
             local r = RouteRow(f, n)
             local current = rank >= s.from and rank < s.to
@@ -398,7 +563,8 @@ local function RefreshRoute(f)
             local est = false
             for _, m in ipairs(s.mats) do if Est(m.priceSource) then est = true end end
             local known = SW.Prof.Knows(prof, s.spell)
-            r.text:SetText((known and "" or "|cffff8040*|r ") .. U.RecipeName(s.spell) .. " " .. SourceTag(s.source))
+            r.text:SetText((known and "" or "|cffff8040*|r ") .. U.RecipeName(s.spell) .. " " .. SourceTag(s.source)
+                .. (s.vendorOnly and " |cff40bf40(vendor mats)|r" or ""))
             local crafts = current and Plan.CraftsLeft(s, rank) or s.crafts
             r.right:SetText(("x%d  %s"):format(crafts, Cost(crafts * s.costEach, est)))
             r.tipItem, r.tipSpell, r.tipExtra = s.item, s.spell, StepTooltip(s)
@@ -431,9 +597,9 @@ local function BuildShop(f)
     f.rows, f.heads = {}, {}
     f.buy = U.Button(f, "Buy from this merchant", 170, 22)
     f.buy:SetPoint("TOPLEFT", 0, -2)
-    f.buy:SetScript("OnClick", function(self)
-        for _, m in ipairs(self.list or {}) do SW.Prices.Buy(m.id, m.qty) end
-    end)
+    f.buy:SetScript("OnClick", function(self) SW.Prices.ConfirmBuy(self.list) end)
+    f.buy:SetScript("OnEnter", function(self) SW.Prices.BuyTooltip(self, self.list) end)
+    f.buy:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.hint = U.Text(f, "GameFontHighlightSmall", "LEFT", true)
     f.hint:SetPoint("TOPLEFT", 2, -6)
     f.hint:SetPoint("RIGHT", -4, 0)
@@ -466,7 +632,6 @@ local function RefreshShop(f)
             r.text:SetText(ItemText(e.id))
             local col = e.have >= e.need and "|cff40bf40" or "|cffffffff"
             r.right:SetText(("%s%d|r/%d  %s"):format(col, math.min(e.have, e.need), e.need, Cost(e.need * e.unit, Est(e.priceSource))))
-            r.text:SetPoint("RIGHT", -110, 0)
             r.tipItem, r.tipSpell = e.id, nil
             r.tipExtra = function(tt)
                 tt:AddLine(" ")
@@ -482,11 +647,7 @@ local function RefreshShop(f)
             y = y - 21
             total = total + e.need * e.unit
             if Est(e.priceSource) then est = true end
-            if e.short > 0 and SW.Prices.merchant[e.id] then
-                local ex
-                for _, b in ipairs(buyList) do if b.id == e.id then ex = b end end
-                if ex then ex.qty = ex.qty + e.short else buyList[#buyList + 1] = { id = e.id, qty = e.short, unit = e.unit } end
-            end
+            if e.short > 0 then SW.Prices.AddToBuy(buyList, e.id, e.short, e.unit) end
         end
     end
     if #buyList > 0 then
@@ -509,103 +670,9 @@ local function RefreshShop(f)
 end
 
 -- ---------------------------------------------------------------------------
--- Settings
--- ---------------------------------------------------------------------------
-local function BuildSettings(f)
-    local checks = {}
-    f.checks = checks
-    local y = -6
-    local function heading(text)
-        local h = U.Heading(f, text)
-        h:SetPoint("TOPLEFT", 2, y)
-        y = y - 26
-    end
-    local function checkbox(label, key, tip, after)
-        local cb = U.Checkbox(f, label)
-        cb:SetPoint("TOPLEFT", 4, y)
-        cb.key = key
-        cb:SetScript("OnClick", function(self)
-            local v = self:GetChecked() and true or false
-            if self.invert then v = not v end
-            SW.Settings()[key] = v
-            if after then after() end
-        end)
-        if tip then
-            cb:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(label, 1, 0.82, 0.3)
-                GameTooltip:AddLine(tip, 0.85, 0.85, 0.85, true)
-                GameTooltip:Show()
-            end)
-            cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        end
-        checks[#checks + 1] = cb
-        y = y - 28
-    end
-    heading("Window")
-    checkbox("Open with the profession window", "autoOpen")
-    checkbox("Attach to the profession window", "attach", nil, function() SW.Anchor() end)
-    checkbox("Show the minimap button", "hideMinimap", nil, function() SW.UpdateMinimap() end)
-    checks[#checks].invert = true
-    y = y - 6
-    heading("Route")
-    checkbox("Use camp stations", "allowCamp",
-        "Plan recipes that need one of Forever's camp stations (Tanning Rack, Spinning Wheel, Master Forge ...). "
-        .. "Leave off unless you have one.", function() Plan.Invalidate() end)
-
-    f.specLabel = U.Text(f, "GameFontHighlight")
-    f.specLabel:SetPoint("TOPLEFT", 8, y - 4)
-    f.specY = y - 22
-    y = y - 60
-
-    local help = U.Text(f, "GameFontHighlightSmall", "LEFT", true)
-    help:SetPoint("TOPLEFT", 4, y)
-    help:SetPoint("RIGHT", -4, 0)
-    help:SetText("|cffffd100How the plan works|r\n"
-        .. "Skillwright picks, for every skill point, the recipe with the lowest cost (Cheapest) or the fewest crafts "
-        .. "(Fastest) per skill-up, from the recipes a trainer teaches and the ones you already know.\n\n"
-        .. "|cffffd100Prices|r come from Auctionator or TSM when installed, else from your own scan: open the auction house "
-        .. "and press |cffffd100Scan prices|r. Without any, prices are estimates (marked est.).\n\n"
-        .. "|cffffd100Trainers|r: the game doesn't say what skill a trainer recipe needs until you see it at a trainer. "
-        .. "Visit your trainer once and the plan uses the real numbers.")
-end
-
-local function RefreshSettings(f)
-    for _, cb in ipairs(f.checks) do
-        local v = SW.Settings()[cb.key] and true or false
-        if cb.invert then v = not v end
-        cb:SetChecked(v)
-    end
-    local prof = win.prof
-    local specs = SW.PROFESSIONS[prof] and SW.PROFESSIONS[prof].specs
-    if f.spec then f.spec:Hide() end
-    if specs then
-        f.specLabel:SetText(("%s specialization"):format(SW.ProfName(prof)))
-        f.specLabel:Show()
-        f.specCtl = f.specCtl or {}
-        local ctl = f.specCtl[prof]
-        if not ctl then
-            local items = { { value = "none", label = "None" } }
-            for _, s in ipairs(specs) do items[#items + 1] = { value = s, label = s } end
-            ctl = U.Segmented(f, items, 90 * #items, function(v)
-                SW.CharProf(prof).spec = (v ~= "none") and v or nil
-                Plan.Invalidate(prof)
-            end)
-            ctl:SetPoint("TOPLEFT", 8, f.specY)
-            f.specCtl[prof] = ctl
-        end
-        ctl:Select(Plan.Spec(prof) or "none")
-        ctl:Show()
-        f.spec = ctl
-    else
-        f.specLabel:Hide()
-    end
-end
-
--- ---------------------------------------------------------------------------
 -- Window
 -- ---------------------------------------------------------------------------
-local function DefaultProf()
+function SW.DefaultProf()
     local open = SW.Prof.OpenLine()
     if open and SW.PROFESSIONS[open] then return open end
     local last = SW.CharDB().lastProf
@@ -613,13 +680,153 @@ local function DefaultProf()
     return SW.Prof.Mine()[1] or SW.Prof.All()[1]
 end
 
+-- ---------------------------------------------------------------------------
+-- Minimal: just the step, its materials and the Craft button
+-- ---------------------------------------------------------------------------
+local MINI_W = 260
+
+local function BuildMini()
+    local m = CreateFrame("Frame", nil, win)
+    m:SetPoint("TOPLEFT", 12, -26)
+    m:SetPoint("BOTTOMRIGHT", -10, 10)
+    m.icon = U.IconButton(m, 32)
+    m.icon:SetPoint("TOPLEFT", 2, -2)
+    m.title = U.Text(m, "GameFontNormal", "LEFT", true)
+    m.title:SetPoint("TOPLEFT", m.icon, "TOPRIGHT", 8, 0)
+    m.title:SetPoint("RIGHT", m, "RIGHT", -2, 0)
+    m.sub = U.Text(m, "GameFontHighlightSmall", "LEFT", true)
+    m.sub:SetPoint("TOPLEFT", m.title, "BOTTOMLEFT", 0, -3)
+    m.sub:SetPoint("RIGHT", m, "RIGHT", -2, 0)
+    m.mats = {}
+    m.slot = U.IconButton(m, 30)
+    m.slot.bg = m.slot:CreateTexture(nil, "BACKGROUND")
+    m.slot.bg:SetAllPoints()
+    m.slot.bg:SetTexture("Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+    m.slot.plus = m.slot:CreateFontString(nil, "OVERLAY", "GameFontGreenLarge")
+    m.slot.plus:SetPoint("BOTTOMRIGHT", -1, 0)
+    m.slot.plus:SetText("+")
+    m.slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    m.slot:SetScript("OnClick", TargetSlotClick)
+    m.slot:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.link then GameTooltip:SetHyperlink(self.link) else GameTooltip:AddLine("Select Item to Enchant", 1, 0.82, 0.3) end
+        GameTooltip:AddLine("Click: choose.  Right-click: no target.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    m.craft = U.Button(m, "Craft", MINI_W - 26, 24)
+    m.craft:SetScript("OnClick", CraftClick)
+    m.note = U.Text(m, "GameFontHighlightSmall", "LEFT", true)
+    win.mini = m
+    m:Hide()
+end
+
+local function RefreshMini()
+    local m = win.mini
+    local prof = win.prof
+    for _, c in ipairs(m.mats) do c:Hide() end
+    m.slot:Hide(); m.craft:Hide(); m.note:Hide()
+    local cur = Plan.Current(prof)
+    local h
+    if not cur or cur.done then
+        m.icon:Set(nil, nil)
+        m.icon.tex:SetTexture(SW.ProfIcon(prof))
+        m.title:SetText(SW.ProfName(prof))
+        m.sub:SetText(cur and cur.route and cur.route.gapAt and ("No trainer recipe past %d"):format(cur.route.gapAt) or "Nothing to do")
+        h = 70
+    else
+        local s, tool = cur.step, cur.tool
+        if tool then
+            m.icon:Set(tool.item, tool.spell)
+            m.title:SetText("|cffffd100First:|r " .. ItemText(tool.item))
+            m.sub:SetText((tool.buy and "Buy" or "Make") .. " one")
+        else
+            m.icon:Set(s.item, s.spell, StepTooltip(s))
+            m.title:SetText(U.Colored(cur.color, U.RecipeName(s.spell)))
+            m.sub:SetText(("%d more  |cff8a8a8a%d > %d|r%s"):format(cur.left, cur.rank, s.to,
+                cur.known and "" or "  |cffff8040not learned|r"))
+        end
+        -- materials under the (wrapping) title, the enchant target at the right; rows of icons as needed
+        local top = -math.max(38, m.title:GetStringHeight() + m.sub:GetStringHeight() + 12)
+        local isEnchantHere = not tool and SW.Enchant.IsEnchant(s) and cur.known and SW.Prof.IsOpen(prof)
+        local perRow = math.max(1, math.floor((MINI_W - 24 - (isEnchantHere and 40 or 0)) / 44))
+        for i, mat in ipairs(cur.mats) do
+            local cell = m.mats[i]
+            if not cell then
+                cell = U.IconButton(m, 28)
+                cell.count = U.Text(cell, "GameFontHighlightSmall", "CENTER")
+                cell.count:SetPoint("TOP", cell, "BOTTOM", 0, -1)
+                m.mats[i] = cell
+            end
+            cell:Set(mat.id, nil)
+            cell.count:SetText(("%s%d|r/%d"):format(mat.have >= mat.need and "|cff40bf40" or "|cffff6060", mat.have, mat.need))
+            cell:ClearAllPoints()
+            local col, row = (i - 1) % perRow, math.floor((i - 1) / perRow)
+            cell:SetPoint("TOPLEFT", m, "TOPLEFT", 2 + col * 44, top - row * 46)
+            cell:Show()
+        end
+        local matRows = math.max(1, math.ceil(#cur.mats / perRow))
+        local isEnchant = not tool and SW.Enchant.IsEnchant(s)
+        if isEnchant and cur.known and SW.Prof.IsOpen(prof) then
+            local target, targets = SW.Enchant.Target(s.spell)
+            if targets and #targets > 0 then
+                m.slot.spell = s.spell
+                m.slot.link = target and target.link
+                m.slot.tex:SetTexture(target and U.ItemIcon(target.id) or nil)
+                m.slot.tex:SetShown(target ~= nil)
+                m.slot.plus:SetShown(target == nil)
+                m.slot:ClearAllPoints()
+                m.slot:SetPoint("TOPRIGHT", m, "TOPRIGHT", -4, top)
+                m.slot:Show()
+            end
+        end
+        h = -top + matRows * 46
+        if cur.known and SW.Prof.IsOpen(prof) and not (tool and tool.buy) then
+            SetupCraftButton(m.craft, cur, prof)
+            m.craft:ClearAllPoints()
+            m.craft:SetPoint("TOPLEFT", m, "TOPLEFT", 2, -h - 4)
+            m.craft:Show()
+            h = h + 32
+        elseif not SW.Prof.IsOpen(prof) and cur.known then
+            m.note:SetText("|cff8a8a8aOpen the profession window to craft.|r")
+            m.note:ClearAllPoints()
+            m.note:SetPoint("TOPLEFT", m, "TOPLEFT", 2, -h - 4)
+            m.note:SetWidth(MINI_W - 26)
+            m.note:Show()
+            h = h + 20
+        end
+    end
+    win:SetSize(MINI_W, h + 40)
+end
+
+local function ApplyMode()
+    local minimal = SW.Settings().minimal
+    if minimal and not win.mini then BuildMini() end
+    for _, w in ipairs(win.fullOnly) do w:SetShown(not minimal) end
+    if win.mini then win.mini:SetShown(minimal and true or false) end
+    win.sizeBtn:SetText(minimal and "+" or "-")
+    if not minimal then win:SetSize(W, H) end
+end
+
+function SW.SetMinimal(on)
+    SW.Settings().minimal = on and true or false
+    if win then
+        ApplyMode()
+        SW.RefreshWindow()
+    end
+end
+
 local function Refresh()
     if not win or not win:IsShown() then return end
+    ApplyMode()
+    if SW.Settings().minimal then
+        RefreshMini()
+        return
+    end
     local prof = win.prof
     local cp = SW.CharProf(prof)
     win.profIcon:SetTexture(SW.ProfIcon(prof))
     if cp.has then
-        win.profText:SetText(("%s  |cffffffff%d|r|cff8a8a8a/%d|r"):format(SW.ProfName(prof), cp.rank or 0, cp.max or 0))
+        win.profText:SetText(("%s |cffffffff%d|r|cff8a8a8a/%d|r"):format(SW.ProfName(prof), cp.rank or 0, cp.max or 0))
     else
         win.profText:SetText(("%s  |cff8a8a8a(preview)|r"):format(SW.ProfName(prof)))
     end
@@ -628,8 +835,9 @@ local function Refresh()
     if v and v.frame then v.refresh(v.frame) end
     -- Footer: where prices come from, and the scan button at the auction house.
     local src = SW.Prices.SourceText()
-    win.status:SetText(src and ("|cff8a8a8aPrices:|r " .. src) or "|cff8a8a8aPrices: estimates - scan the auction house for real ones|r")
+    win.status:SetText(src and ("|cff8a8a8aPrices:|r " .. src) or "|cff8a8a8aPrices: estimated (no auction data)|r")
     win.scan:SetShown(SW.Prices.CanScan() and true or false)
+    win.status:SetPoint("RIGHT", win.scan:IsShown() and win.scan or win, win.scan:IsShown() and "LEFT" or "RIGHT", win.scan:IsShown() and -8 or -18, 0)
     win.scan:SetEnabled(not SW.Prices.Scanning())
     win.scan:SetText(SW.Prices.Scanning() and "Scanning..." or "Scan prices")
 end
@@ -656,13 +864,43 @@ local function SelectView(id)
     Refresh()
 end
 
+-- How far past its right edge the profession window reaches: Forever hangs its tabs off the right side.
+local function HostOverhang(host)
+    local edge = host:GetRight()
+    if not edge then return 0 end
+    local far = edge
+    local function scan(frame, depth)
+        for _, child in ipairs({ frame:GetChildren() }) do
+            if child:IsShown() then
+                local r = child:GetRight()
+                -- only small things hanging off the edge count, not a detached panel
+                if r and r > far and r - edge < 80 and (child:GetWidth() or 0) < 200 then far = r end
+                if depth < 2 then scan(child, depth + 1) end
+            end
+        end
+    end
+    scan(host, 0)
+    return math.max(0, far - edge)
+end
+
 -- Anchor: beside the open profession window when attached, else where the player left it.
 function SW.Anchor()
     if not win then return end
     win:ClearAllPoints()
     local host = ProfessionsFrame
     if win.attached and SW.Settings().attach and host and host:IsShown() then
-        win:SetPoint("TOPLEFT", host, "TOPRIGHT", 2, 0)
+        win:SetPoint("TOPLEFT", host, "TOPRIGHT", HostOverhang(host) + 4, 0)
+        -- the tabs are laid out a moment after the window shows; measure again then
+        if not win.reanchoring then
+            win.reanchoring = true
+            C_Timer.After(0.1, function()
+                win.reanchoring = false
+                if win.attached and host:IsShown() then
+                    win:ClearAllPoints()
+                    win:SetPoint("TOPLEFT", host, "TOPRIGHT", HostOverhang(host) + 4, 0)
+                end
+            end)
+        end
         return
     end
     local pos = SW.DB().pos
@@ -702,15 +940,12 @@ end
 local function Build()
     if win then return end
     win = U.Window("SkillwrightFrame", UIParent, W, H, "Skillwright")
-    win:SetFrameStrata("HIGH")
-    win:SetMovable(true)
-    win:RegisterForDrag("LeftButton")
-    win:SetScript("OnDragStart", win.StartMoving)
-    win:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SW.DB().pos = { x = self:GetLeft(), y = self:GetTop() }
-        self.attached = false
-    end)
+    win:SetPoint("CENTER", UIParent, "CENTER", 260, 40)
+    -- LibForever's shared window handling: strata, front-to-back order with our other windows, dragging,
+    -- the saved position (SkillwrightDB.pos) and Escape. Dragging also unhooks the guide from the
+    -- profession window.
+    SW.LIB.RegisterWindow(win, SW.DB(), "pos")
+    win:HookScript("OnDragStop", function(self) self.attached = false end)
 
     local close = win.ClosePanelButton or win.CloseButton
     if not close then
@@ -728,6 +963,7 @@ local function Build()
     win.profIcon:SetPoint("LEFT", 0, 0)
     win.profIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     win.profText = U.Text(pb, "GameFontNormal")
+    win.profText:SetWidth(168)
     win.profText:SetPoint("LEFT", win.profIcon, "RIGHT", 6, 0)
     local arrow = pb:CreateTexture(nil, "ARTWORK")
     arrow:SetAtlas("common-dropdown-a-button")
@@ -742,7 +978,7 @@ local function Build()
     win.mode = U.Segmented(win, {
         { value = "cheap", label = "Cheapest", tooltip = "The least gold per skill point, from market prices." },
         { value = "fast", label = "Fastest", tooltip = "The fewest crafts per skill point (orange and yellow recipes first)." },
-    }, 150, function(v) SW.SetMode(v) end)
+    }, 136, function(v) SW.SetMode(v) end)
     win.mode:SetPoint("TOPRIGHT", -18, -31)
 
     win.tabs = U.Tabs(win, VIEW_ORDER, SelectView)
@@ -762,26 +998,59 @@ local function Build()
     win.scan:SetScript("OnClick", function() SW.Prices.StartScan() end)
     win.status = U.Text(win, "GameFontHighlightSmall")
     win.status:SetPoint("BOTTOMLEFT", 18, 17)
-    win.status:SetPoint("RIGHT", win.scan, "LEFT", -8, 0)
+    win.status:SetPoint("RIGHT", win, "RIGHT", -18, 0)
+    local statusHit = CreateFrame("Frame", nil, win)
+    statusHit:SetPoint("TOPLEFT", win.status, "TOPLEFT", 0, 4)
+    statusHit:SetPoint("BOTTOMRIGHT", win.status, "BOTTOMRIGHT", 0, -4)
+    statusHit:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Prices", 1, 0.82, 0.3)
+        local src = SW.Prices.SourceText()
+        GameTooltip:AddLine(src and ("From: " .. src) or "No auction prices yet, so materials that aren't sold by vendors are estimated.", 0.85, 0.85, 0.85, true)
+        GameTooltip:AddLine("Open the auction house and press Scan prices, or install Auctionator or TSM.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    statusHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    win.statusHit = statusHit
+
+    -- Full / minimal switch, left of the close button
+    win.sizeBtn = U.Button(win, "-", 22, 18)
+    win.sizeBtn:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    win.sizeBtn:SetScript("OnClick", function() SW.SetMinimal(not SW.Settings().minimal) end)
+    win.sizeBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(SW.Settings().minimal and "Full window" or "Minimal window", 1, 0.82, 0.3)
+        GameTooltip:AddLine(SW.Settings().minimal and "Back to the full guide with the route, shopping list and settings."
+            or "Just the recipe to make, its materials and the Craft button.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    win.sizeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Everything the minimal window hides
+    win.fullOnly = { pb, win.mode, divider, win.body, win.scan, win.status, win.statusHit }
+    for _, b in ipairs(win.tabs.buttons) do win.fullOnly[#win.fullOnly + 1] = b end
 
     views.now = { build = BuildNow, refresh = RefreshNow }
     views.route = { build = BuildRoute, refresh = RefreshRoute }
     views.shop = { build = BuildShop, refresh = RefreshShop }
-    views.settings = { build = BuildSettings, refresh = RefreshSettings }
+    views.settings = { build = SW.SettingsPage.Build, refresh = function(f) SW.SettingsPage.Refresh(f, win.prof) end }
 
-    win:SetScript("OnShow", function() SW.RefreshWindow() end)
+    win:HookScript("OnShow", function() SW.RefreshWindow() end)
     win:Hide()
 end
 
 -- Show the guide for a profession (nil = the best guess) on a tab (nil = keep the current one).
 function SW.ShowWindow(prof, view, attached)
     Build()
-    win.prof = prof or win.prof or DefaultProf()
+    win.prof = prof or win.prof or SW.DefaultProf()
     if not win.prof then return end
     SW.CharDB().lastProf = win.prof
+    -- asking for a particular tab (settings from /skw config) needs the full window
+    if view and view ~= "now" and SW.Settings().minimal then SW.Settings().minimal = false end
     win.attached = attached and true or false
     SW.Anchor()
     win:Show()
+    -- the shared window handling places a window on its first show; attached, we sit by the profession window
+    if win.attached then SW.Anchor() end
     SelectView(view or win.view or "now")
 end
 
@@ -826,7 +1095,8 @@ SW.Listen("LOGIN", function()
     end)
 end)
 
-for _, ev in ipairs({ "PLAN_CHANGED", "RANKS_CHANGED", "MERCHANT_CHANGED", "TRAINER_CHANGED", "SCAN_STATE", "RECIPES_CHANGED" }) do
+for _, ev in ipairs({ "PLAN_CHANGED", "RANKS_CHANGED", "MERCHANT_CHANGED", "TRAINER_CHANGED", "SCAN_STATE", "RECIPES_CHANGED",
+                     "PROFESSION_UPDATED" }) do
     SW.Listen(ev, SW.RefreshWindow)
 end
 SW.On("BAG_UPDATE_DELAYED", SW.RefreshWindow)

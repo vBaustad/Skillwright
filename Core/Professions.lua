@@ -14,57 +14,55 @@ local function RememberName(id, name)
     if id and name and name ~= "" then SW.DB().profNames[id] = name end
 end
 
--- Ranks of every profession the character has, without opening any window.
+-- Ranks of every profession the character has, without opening any window. Asked per skill line ID:
+-- walking the skill list by index only sees lines under expanded headers, and a collapsed
+-- "Professions" header would make every profession look forgotten.
 function P.ScanRanks()
-    local found = {}
-    if C_SkillInfo and C_SkillInfo.GetNumSkillLines then
-        for i = 1, C_SkillInfo.GetNumSkillLines() do
-            local s = C_SkillInfo.GetSkillLineInfo(i)
-            if s and not s.isHeader then
-                local id = BaseLine(s.skillID, s.parentSkillLineID)
-                if id then found[id] = { rank = s.rank, max = s.maxRank, name = s.name } end
-            end
-        end
-    end
-    if GetProfessions and GetProfessionInfo then
-        for _, index in pairs({ GetProfessions() }) do
-            if index then
-                local name, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(index)
-                local id = skillLine and BaseLine(skillLine)
-                if id and not found[id] then found[id] = { rank = rank, max = maxRank, name = name } end
-            end
-        end
-    end
+    if not (C_SkillInfo and C_SkillInfo.GetSkillLineInfoByID) then return end
     local changed = false
-    for id, info in pairs(found) do
-        RememberName(id, info.name)
+    for id in pairs(SW.ALL_LINES) do
+        local s = C_SkillInfo.GetSkillLineInfoByID(id)
+        local has = s and not s.isHeader and (s.rank or 0) > 0
+        if has then RememberName(id, s.name) end
         if SW.PROFESSIONS[id] then
             local p = SW.CharProf(id)
-            if p.rank ~= info.rank or p.max ~= info.max then
-                p.rank, p.max = info.rank or 0, info.max or 0
-                p.has = true
+            if has then
+                if not p.has or p.rank ~= s.rank or p.max ~= s.maxRank then
+                    p.has, p.rank, p.max = true, s.rank, s.maxRank or 0
+                    changed = true
+                end
+            elseif p.has then
+                p.has, p.rank = nil, 0      -- forgotten (unlearned at a trainer)
                 changed = true
             end
-            p.has = true
-        end
-    end
-    -- Forgotten professions
-    for id, p in pairs(SW.CharDB().profs) do
-        if p.has and not found[id] and next(found) then
-            p.has, p.rank = nil, 0
-            changed = true
         end
     end
     if changed then SW.Fire("RANKS_CHANGED") end
 end
 
-function P.Rank(id)
-    return SW.CharProf(id).rank or 0
+-- Learned recipes without opening the profession window: IsPlayerSpell knows recipe spells in Forever
+-- (verified in game), so the route and shopping list are right even before the window has been opened.
+-- It only ever adds: the window scan (below) stays the full truth while the window is open.
+function P.ScanKnownSpells()
+    if not IsPlayerSpell then return end
+    for id, data in pairs(SW.Data.professions) do
+        local p = SW.CharDB().profs[id]
+        if p and p.has then
+            p.known = p.known or {}
+            local added = false
+            for _, r in ipairs(data[2]) do
+                if not p.known[r[1]] and IsPlayerSpell(r[1]) then
+                    p.known[r[1]] = true
+                    added = true
+                end
+            end
+            if added then SW.Fire("RECIPES_CHANGED", id) end
+        end
+    end
 end
 
-function P.MaxRank(id)
-    local m = SW.CharProf(id).max or 0
-    return m > 0 and m or SW.MAX_RANK
+function P.Rank(id)
+    return SW.CharProf(id).rank or 0
 end
 
 -- Professions this character has that Skillwright can plan, sorted by name.
@@ -101,22 +99,61 @@ local function ViewingOwnProfession()
     return true
 end
 
--- Skill line of the profession window that is open right now (own professions only), or nil.
-function P.OpenLine()
+-- The profession window that is open (own professions only): { id = base line, info = profession info }.
+-- Read when it opens and kept until it closes, so refreshes don't keep asking the client.
+-- Where it comes from: GetChildProfessionInfo(), and when that has no profession (professionID 0: Forever has
+-- no expansion tiers) the info Blizzard's own window stored, ProfessionsFrame.professionInfo. Blizzard gets
+-- that one from GetBaseProfessionInfo, which addon code can't call (it raises the "blocked action" dialog).
+local open = nil
+local windowOpen = false     -- between TRADE_SKILL_SHOW and TRADE_SKILL_CLOSE
+local pendingOpen = false    -- the window opened and the guide hasn't been told yet
+local retries = 0
+local MAX_RETRIES = 10       -- x 0.5 s: the data can come a moment after TRADE_SKILL_SHOW
+
+local function ReadOpen()
     if not ViewingOwnProfession() then return nil end
-    local info = C_TradeSkillUI.GetBaseProfessionInfo()
-    if not info or not info.professionID or info.professionID == 0 then return nil end
-    return BaseLine(info.professionID, info.parentProfessionID), info
+    local child = C_TradeSkillUI.GetChildProfessionInfo()
+    if child and child.professionID and child.professionID ~= 0 then
+        local id = BaseLine(child.professionID, child.parentProfessionID)
+        if id then return { id = id, info = child } end
+    end
+    local shown = ProfessionsFrame and ProfessionsFrame.professionInfo
+    if shown and shown.professionID and shown.professionID ~= 0 then
+        local id = BaseLine(shown.professionID, shown.parentProfessionID)
+        if id then return { id = id, info = shown } end
+    end
+    return nil
 end
 
-local function ScanOpen()
+function P.OpenLine()
+    if open then return open.id, open.info end
+end
+
+-- PROFESSION_OPEN once per opening of the profession window (as soon as its data is there - also when it is
+-- the same profession as last time) and when it switches profession; rescans of an open window (a craft, a
+-- new recipe) fire PROFESSION_UPDATED, which only refreshes - so a guide you closed stays closed.
+local ScanOpen
+ScanOpen = function()
+    if not windowOpen then return end
+    local before = open and open.id
+    open = ReadOpen()
     local id, info = P.OpenLine()
-    if not id or not SW.PROFESSIONS[id] then return end
+    if not id then
+        -- not ready yet: try again shortly while the opening is still unannounced
+        if pendingOpen and retries < MAX_RETRIES then
+            retries = retries + 1
+            SW.Debounce("scanTrade", 0.5, ScanOpen)
+        end
+        return
+    end
+    if not SW.PROFESSIONS[id] then pendingOpen = false return end   -- a gathering profession
     RememberName(id, (info.parentProfessionName and info.parentProfessionName ~= "") and info.parentProfessionName or info.professionName)
     local p = SW.CharProf(id)
-    local rankChanged = p.rank ~= info.skillLevel or p.max ~= info.maxSkillLevel
+    local level, maxLevel = info.skillLevel, info.maxSkillLevel
+    if not level or level == 0 then level, maxLevel = p.rank, p.max end
+    local rankChanged = p.rank ~= level or p.max ~= maxLevel
     p.has = true
-    p.rank, p.max = info.skillLevel or p.rank, info.maxSkillLevel or p.max
+    p.rank, p.max = level or p.rank, maxLevel or p.max
 
     -- Ask the client about every recipe in the data; the window's filters can't hide any this way.
     local known, changed = {}, false
@@ -133,12 +170,17 @@ local function ScanOpen()
     SW.dbg("scanned %s: rank %d/%d", SW.ProfName(id), p.rank, p.max)
     if changed then SW.Fire("RECIPES_CHANGED", id) end
     if rankChanged then SW.Fire("RANKS_CHANGED", id) end
-    SW.Fire("PROFESSION_OPEN", id)
+    if pendingOpen or (before and id ~= before) then
+        pendingOpen = false
+        SW.Fire("PROFESSION_OPEN", id)
+    else
+        SW.Fire("PROFESSION_UPDATED", id)
+    end
 end
 
 function P.IsOpen(id)
-    local open = P.OpenLine()
-    return open ~= nil and open == id
+    local current = P.OpenLine()
+    return current ~= nil and current == id
 end
 
 -- Learned right now? Live when that profession's window is open, else the last scan.
@@ -150,13 +192,25 @@ function P.Knows(id, spell)
     return SW.CharProf(id).known[spell] or false
 end
 
-SW.On("TRADE_SKILL_SHOW", function() SW.Debounce("scanTrade", 0.3, ScanOpen) end)
-SW.On("TRADE_SKILL_LIST_UPDATE", function() SW.Debounce("scanTrade", 1, ScanOpen) end)
-SW.On("NEW_RECIPE_LEARNED", function() SW.Debounce("scanTrade", 1, ScanOpen) end)
+SW.On("TRADE_SKILL_SHOW", function()
+    windowOpen, pendingOpen, retries = true, true, 0
+    SW.Debounce("scanTrade", 0.3, ScanOpen)
+end)
+SW.On("TRADE_SKILL_LIST_UPDATE", function() if windowOpen then SW.Debounce("scanTrade", 1, ScanOpen) end end)
+SW.On("NEW_RECIPE_LEARNED", function()
+    if windowOpen then SW.Debounce("scanTrade", 1, ScanOpen) else SW.Debounce("scanKnown", 1, P.ScanKnownSpells) end
+end)
 SW.On("TRADE_SKILL_CLOSE", function()
+    windowOpen, pendingOpen, open = false, false, nil
+    SW.Debounce("scanTrade", 0, function() end)   -- drop a scan still waiting for the closed window
     SW.Fire("PROFESSION_CLOSED")
     SW.Debounce("scanRanks", 0.5, P.ScanRanks)
 end)
 SW.On("SKILL_LINES_CHANGED", function() SW.Debounce("scanRanks", 0.5, P.ScanRanks) end)
 SW.On("CHAT_MSG_SKILL", function() SW.Debounce("scanRanks", 0.3, P.ScanRanks) end)
-SW.Listen("LOGIN", function() C_Timer.After(2, P.ScanRanks) end)
+SW.Listen("LOGIN", function()
+    C_Timer.After(2, function()
+        P.ScanRanks()
+        P.ScanKnownSpells()
+    end)
+end)

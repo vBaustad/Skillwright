@@ -1,5 +1,5 @@
--- Skillwright - ways in: the shared launcher notch, the addon compartment, a minimap button,
--- and a Scan prices button on the auction house.
+-- Skillwright - ways in: the shared launcher notch, the addon compartment, the minimap button
+-- (LibDBIcon through LibForever) and a Scan prices button on the auction house.
 local ADDON, SW = ...
 local U = SW.UI
 local LIB = SW.LIB
@@ -7,7 +7,7 @@ local LIB = SW.LIB
 local ICON = "Interface\\AddOns\\Skillwright\\Media\\notch"
 
 local function OnClick(button)
-    if button == "RightButton" then SW.ShowWindow(nil, "settings") else SW.ToggleWindow() end
+    if button == "RightButton" then SW.OpenSettings() else SW.ToggleWindow() end
 end
 
 local function Tooltip(tt)
@@ -22,64 +22,22 @@ local function Tooltip(tt)
 end
 
 -- ---------------------------------------------------------------------------
--- Minimap button (no library)
+-- Minimap button: the standard LibDBIcon button, through LibForever (stored in SkillwrightDB.minimap)
 -- ---------------------------------------------------------------------------
-local mmb
-
-local function UpdatePosition()
-    if not mmb then return end
-    local angle = math.rad(SW.Settings().minimapAngle or 215)
-    local r = (Minimap:GetWidth() / 2) + 5
-    mmb:ClearAllPoints()
-    mmb:SetPoint("CENTER", Minimap, "CENTER", r * math.cos(angle), r * math.sin(angle))
-end
-
-function SW.UpdateMinimap()
-    if mmb then mmb:SetShown(not SW.Settings().hideMinimap) end
-end
-
 local function BuildMinimap()
-    if mmb then return end
-    mmb = CreateFrame("Button", "SkillwrightMinimapButton", Minimap)
-    mmb:SetSize(31, 31)
-    mmb:SetFrameStrata("MEDIUM")
-    mmb:SetFrameLevel(8)
-    mmb:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    mmb:RegisterForDrag("LeftButton")
-    local bg = mmb:CreateTexture(nil, "BACKGROUND")
-    bg:SetSize(20, 20)
-    bg:SetPoint("TOPLEFT", 6, -5)
-    bg:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    bg:SetVertexColor(0.16, 0.11, 0.07, 1)
-    local icon = mmb:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(17, 17)
-    icon:SetPoint("TOPLEFT", 7, -6)
-    icon:SetTexture(ICON)
-    local ring = mmb:CreateTexture(nil, "OVERLAY")
-    ring:SetSize(53, 53)
-    ring:SetPoint("TOPLEFT")
-    ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    mmb:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-    mmb:SetScript("OnClick", function(_, button) OnClick(button) end)
-    mmb:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        Tooltip(GameTooltip)
-        GameTooltip:AddLine("Drag: move around the minimap", 0.6, 0.6, 0.6)
-        GameTooltip:Show()
-    end)
-    mmb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    mmb:SetScript("OnDragStart", function(self)
-        self:SetScript("OnUpdate", function()
-            local mx, my = Minimap:GetCenter()
-            local cx, cy = GetCursorPosition()
-            local scale = Minimap:GetEffectiveScale()
-            SW.Settings().minimapAngle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
-            UpdatePosition()
-        end)
-    end)
-    mmb:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-    UpdatePosition()
-    SW.UpdateMinimap()
+    if not LIB.RegisterMinimapButton then return end
+    local settings = SW.Settings()
+    local firstTime = SW.DB().minimap == nil
+    local ok = LIB.RegisterMinimapButton("Skillwright", {
+        icon = "Interface\\AddOns\\Skillwright\\Media\\minimap",
+        label = "Skillwright",
+        OnClick = function(_, button) OnClick(button) end,
+        OnTooltipShow = function(tt) Tooltip(tt) end,
+        migrateAngle = settings.minimapAngle,    -- where the old hand-made button was, in degrees
+    }, SW.DB())
+    -- one-time move of the old button's settings: it stays hidden if it was, then the old keys go
+    if ok and firstTime and settings.hideMinimap then LIB.SetMinimapButtonShown("Skillwright", false) end
+    settings.minimapAngle, settings.hideMinimap = nil, nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -94,7 +52,7 @@ end
 function Skillwright_OnAddonCompartmentLeave() GameTooltip:Hide() end
 
 local function RegisterNotch()
-    if not LIB or not LIB.RegisterLauncher then return end
+    if not LIB.RegisterLauncher then return end
     LIB.RegisterLauncher({
         id = "Skillwright", label = "Skillwright", order = 20, icon = ICON,
         onClick = OnClick,

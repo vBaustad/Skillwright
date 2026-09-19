@@ -6,8 +6,8 @@ local ADDON, SW = ...
 local floor, ceil, max, min, huge = math.floor, math.ceil, math.max, math.min, math.huge
 
 -- recipe field positions in SW.Data.professions[prof][2][i]
-local F_SPELL, F_ITEM, F_QTY, F_LEARN, F_YELLOW, F_GREY, F_UPS, F_SRC, F_STATION, F_MATS, F_RITEM, F_CAMP =
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+local F_SPELL, F_ITEM, F_QTY, F_LEARN, F_YELLOW, F_GREY, F_UPS, F_SRC, F_STATION, F_MATS, F_RITEM, F_CAMP, F_TOOLS =
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 
 -- Trainers don't publish the skill a recipe needs to learn; this estimate is replaced by the real value as
 -- soon as the player opens a trainer (SkillwrightDB.learnRanks). Conservative on purpose: planning a recipe
@@ -16,6 +16,13 @@ local LEARN_GAP = 10
 local LEARN_GAP_FALLBACK = 30    -- used only where the conservative estimate leaves no recipe at all
 local SWITCH_PENALTY = 3         -- switching recipe costs as much as ~3 skill points (fewer, longer steps)
 local FAST_GOLD_WEIGHT = 1 / (20 * 10000) -- fast mode: 20g of mats counts as one extra craft (tie-breaker)
+-- "Prefer vendor materials": materials you have to farm or buy at auction count this many times their price,
+-- and in fast mode each craft that needs them counts as this many extra crafts.
+local VENDOR_BIAS = 2.5
+local FAST_VENDOR_PENALTY = 0.75
+-- Materials with no price at all (not sold by vendors, no auction data) may not be for sale anywhere - think
+-- enchanting essences, which only come from disenchanting. They count this many times their guessed price.
+local EST_BIAS = 4
 
 SW.Solver = SW.Solver or {}
 local Solver = SW.Solver
@@ -51,7 +58,6 @@ end
 -- Whether a recipe may be used at all (source + station rules), independent of rank.
 local function usable(r, opts)
     if r[F_CAMP] and not opts.allowCamp then return false end
-    if opts.exclude and opts.exclude[r[F_SPELL]] then return false end
     if opts.known and opts.known[r[F_SPELL]] then return true end
     local src = r[F_SRC]
     if src == "t" or src == "a" then return true end
@@ -95,7 +101,9 @@ function Solver.NewPricer(prof, opts)
         if not best or src == "craft" then
             -- no market data: a rough guess from the vendor sell price (also caps chains of crafted
             -- intermediates, which multiply up quickly when their own inputs are guesses)
-            local est = facts and max(1, facts[2] * 4) or 1000
+            -- vendor sell prices are meaningless for some reagents (essences sell for 1c), so never
+            -- guess below a floor that grows with item level
+            local est = facts and max(1, facts[2] * 4, (facts[5] or 0) ^ 2 * 2) or 1000
             if not best or est < best then best, src = est, "est" end
         end
         cache[id] = { best, src }
@@ -105,14 +113,92 @@ function Solver.NewPricer(prof, opts)
 end
 
 -- Mats cost of one craft minus what the product sells to a vendor for (never below 10% of the mats).
-local function craftCost(r, price)
-    local sum, mats = 0, r[F_MATS]
-    for i = 1, #mats, 2 do sum = sum + mats[i + 1] * (price(mats[i])) end
+-- Also returns whether every material comes from a vendor, and the cost weighted for "prefer vendor".
+local function craftCost(r, price, preferVendor)
+    local sum, vendorSum, weighted, mats = 0, 0, 0, r[F_MATS]
+    for i = 1, #mats, 2 do
+        local unit, src = price(mats[i])
+        local c = mats[i + 1] * unit
+        sum = sum + c
+        if src == "vendor" then
+            vendorSum = vendorSum + c
+            weighted = weighted + c
+        elseif src == "est" then
+            weighted = weighted + c * EST_BIAS
+        else
+            weighted = weighted + c * (preferVendor and VENDOR_BIAS or 1)
+        end
+    end
+    local vendorOnly = vendorSum >= sum
     local facts = r[F_ITEM] > 0 and itemFacts(r[F_ITEM])
     if facts and not facts[4] then
-        sum = max(sum - facts[2] * r[F_QTY], sum * 0.1)
+        local resale = facts[2] * r[F_QTY]
+        sum = max(sum - resale, sum * 0.1)
+        weighted = max(weighted - resale, weighted * 0.1)
     end
-    return sum
+    return sum, vendorOnly, weighted
+end
+
+---------------------------------------------------------------------------------------------------- tools
+
+-- Pure-arithmetic bitwise AND for the (small, positive) tool masks: WoW's Lua has no & operator.
+local function band(a, b)
+    local r, bit = 0, 1
+    while a > 0 and b > 0 do
+        if a % 2 == 1 and b % 2 == 1 then r = r + bit end
+        a, b, bit = floor(a / 2), floor(b / 2), bit * 2
+    end
+    return r
+end
+
+local toolItemCache = {}
+-- Items that count as tool category `cat`, lowest tier first (a Runed Silver Rod counts for copper-rod recipes).
+function Solver.ToolItems(cat)
+    local cached = toolItemCache[cat]
+    if cached then return cached end
+    local list = {}
+    local req = SW.Data.tools and SW.Data.tools[cat]
+    if req and req[2] > 0 then
+        for _, t in pairs(SW.Data.tools) do
+            if t[1] == req[1] and t[2] > 0 and band(t[2], req[2]) == req[2] then
+                for _, id in ipairs(t[3]) do list[#list + 1] = { id = id, mask = t[2] } end
+            end
+        end
+        table.sort(list, function(a, b) return a.mask < b.mask end)
+    end
+    toolItemCache[cat] = list
+    return list
+end
+
+local function hasTool(cat, owned)
+    for _, t in ipairs(Solver.ToolItems(cat)) do
+        if owned[t.id] then return true end
+    end
+    return false
+end
+Solver.HasTool = hasTool
+
+-- How a tool category can be had at `rank`: "owned", { maker = recipe, id } or { buy = itemID, price }, or nil.
+local function toolHow(cat, rank, ctx, depth)
+    if hasTool(cat, ctx.owned) then return "owned" end
+    depth = depth or 0
+    if depth > 3 then return nil end
+    for _, t in ipairs(Solver.ToolItems(cat)) do
+        local maker = ctx.makers[t.id]
+        if maker and Solver.LearnRank(maker, ctx.opts) <= rank then
+            local ok = true
+            for _, sub in ipairs(maker[F_TOOLS] or {}) do
+                if not toolHow(sub, rank, ctx, depth + 1) then ok = false break end
+            end
+            if ok then return { maker = maker, id = t.id } end
+        end
+    end
+    for _, t in ipairs(Solver.ToolItems(cat)) do
+        local facts = itemFacts(t.id)
+        local vendor = (ctx.opts.vendorPrices and ctx.opts.vendorPrices[t.id]) or (facts and facts[1] > 0 and facts[1])
+        if vendor then return { buy = t.id, price = vendor } end
+    end
+    return nil
 end
 
 -- Recipes the player can't use yet (recipe items, quests, specializations) that would carry the route past
@@ -126,7 +212,7 @@ function Solver.GapOptions(prof, rank, opts, price, limit)
             if learn <= rank and p >= 0.5 then
                 list[#list + 1] = { spell = r[F_SPELL], item = r[F_ITEM], source = r[F_SRC], recipeItem = r[F_RITEM],
                                     yellow = r[F_YELLOW], grey = r[F_GREY], learn = learn,
-                                    score = craftCost(r, price) / p }
+                                    score = (craftCost(r, price)) / p }
             end
         end
     end
@@ -137,29 +223,64 @@ end
 
 ---------------------------------------------------------------------------------------------------- solve
 
+local function matsOf(r, crafts, price)
+    local out, mats = {}, r[F_MATS]
+    for i = 1, #mats, 2 do
+        local unit, src = price(mats[i])
+        out[#out + 1] = { id = mats[i], count = mats[i + 1] * crafts, per = mats[i + 1], unit = unit, priceSource = src }
+    end
+    return out
+end
+
 -- opts:
 --   from, to      skill range (to defaults to 300)
 --   mode          "cheap" or "fast"
+--   preferVendor  favour recipes whose materials all come from a vendor
 --   known         { [spell] = true } recipes the character has learned
 --   learnRanks    { [spell] = rank } skill needed to learn, seen at trainers
 --   vendorPrices  { [item] = copper } unit prices seen on merchants
 --   market        function(item) -> copper|nil
+--   owned         { [item] = true } tools the character already has
 --   allowCamp     include recipes that need a camp station
---   exclude       { [spell] = true } recipes the player doesn't want
 -- Returns { steps = { step, ... }, crafts = n, cost = copper, gapAt = rank|nil }
--- step = { from, to, spell, item, qty, crafts, mats = { {id, count}, ... }, cost, source, learn, learnEstimated }
+-- step = { from, to, spell, item, qty, crafts, mats = { {id, count, per, unit, priceSource}, ... }, cost, source,
+--          learn, learnEstimated, vendorOnly, prereqs = { tool, ... } }
+-- tool = { tool = true, category, item, cost, and either spell/qty/mats/source/learn (craft it) or buy = true }
 function Solver.Solve(prof, opts)
     local data = SW.Data.professions[prof]
     if not data then return nil end
     local from, to = opts.from or 1, opts.to or 300
     local fast = opts.mode == "fast"
+    local preferVendor = opts.preferVendor
     local price = Solver.NewPricer(prof, opts)
 
-    local cands = {}
+    local cands, bySpell, makers = {}, {}, {}
     for _, r in ipairs(data[2]) do
         if usable(r, opts) then
-            cands[#cands + 1] = { r = r, cost = craftCost(r, price) }
+            local cost, vendorOnly, weighted = craftCost(r, price, preferVendor)
+            local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted }
+            cands[#cands + 1] = c
+            bySpell[r[F_SPELL]] = c
+            if r[F_ITEM] > 0 and not makers[r[F_ITEM]] then makers[r[F_ITEM]] = r end
         end
+    end
+    local ctx = { owned = opts.owned or {}, makers = makers, opts = opts }
+
+    -- can every tool the recipe needs be had by `rank`? (memoised per category and rank)
+    local toolMemo = {}
+    local function toolsOK(r, rank)
+        local tools = r[F_TOOLS]
+        if not tools or #tools == 0 then return true end
+        for _, cat in ipairs(tools) do
+            local key = cat * 1000 + rank
+            local ok = toolMemo[key]
+            if ok == nil then
+                ok = toolHow(cat, rank, ctx) ~= nil
+                toolMemo[key] = ok
+            end
+            if not ok then return false end
+        end
+        return true
     end
 
     -- per-attempt cost of recipe c at rank `rank`, or nil when it can't give a skill-up there
@@ -169,8 +290,12 @@ function Solver.Solve(prof, opts)
         if learn > rank then return nil end
         local p = Solver.Chance(r[F_YELLOW], r[F_GREY], rank)
         if p <= 0 then return nil end
-        if fast then return (1 + c.cost * FAST_GOLD_WEIGHT) / p end
-        return c.cost / p
+        if not toolsOK(r, rank) then return nil end
+        if fast then
+            local extra = (preferVendor and not c.vendorOnly) and FAST_VENDOR_PENALTY or 0
+            return (1 + extra + c.weight * FAST_GOLD_WEIGHT) / p
+        end
+        return c.weight / p
     end
 
     -- f[rank][ci] = cost of reaching `to` from `rank` crafting cands[ci] now
@@ -233,8 +358,8 @@ function Solver.Solve(prof, opts)
             local learn, est = Solver.LearnRank(r, opts, fb[rank])
             step = { from = rank, to = rank, spell = r[F_SPELL], item = r[F_ITEM], qty = r[F_QTY],
                      yellow = r[F_YELLOW], grey = r[F_GREY], source = r[F_SRC], recipeItem = r[F_RITEM],
-                     station = r[F_STATION], learn = learn, learnEstimated = est,
-                     attempts = 0, costEach = c.cost }
+                     station = r[F_STATION], learn = learn, learnEstimated = est, vendorOnly = c.vendorOnly,
+                     attempts = 0, costEach = c.cost, tools = r[F_TOOLS] }
             steps[#steps + 1] = step
         end
         step.attempts = step.attempts + 1 / p
@@ -243,20 +368,40 @@ function Solver.Solve(prof, opts)
         cur = pick
     end
 
+    -- Tools: before the first step that needs one the player doesn't have, add "make/buy this first".
+    local planned = {}
+    for id in pairs(ctx.owned) do planned[id] = true end
+    local plannedCtx = { owned = planned, makers = makers, opts = opts }
+    local function addTool(list, cat, atRank, depth)
+        depth = depth or 0
+        if hasTool(cat, planned) or depth > 3 then return end
+        local how = toolHow(cat, atRank, plannedCtx)
+        if type(how) ~= "table" then return end
+        if how.maker then
+            for _, sub in ipairs(how.maker[F_TOOLS] or {}) do addTool(list, sub, atRank, depth + 1) end
+            local mr = how.maker
+            local learn, est = Solver.LearnRank(mr, opts)
+            local tc = bySpell[mr[F_SPELL]]
+            list[#list + 1] = { tool = true, category = cat, item = how.id, spell = mr[F_SPELL], qty = mr[F_QTY],
+                                source = mr[F_SRC], learn = learn, learnEstimated = est,
+                                yellow = mr[F_YELLOW], grey = mr[F_GREY],
+                                mats = matsOf(mr, 1, price), cost = tc and tc.cost or (craftCost(mr, price)) }
+            planned[how.id] = true
+        else
+            list[#list + 1] = { tool = true, buy = true, category = cat, item = how.buy, cost = how.price, mats = {} }
+            planned[how.buy] = true
+        end
+    end
+
     for _, s in ipairs(steps) do
         s.crafts = ceil(s.attempts - 1e-6)
         s.cost = s.crafts * s.costEach
-        s.mats = {}
-        local r
-        for _, c in ipairs(cands) do if c.r[F_SPELL] == s.spell then r = c.r break end end
-        local mats = r[F_MATS]
-        for i = 1, #mats, 2 do
-            local id = mats[i]
-            local unit, src = price(id)
-            s.mats[#s.mats + 1] = { id = id, count = mats[i + 1] * s.crafts, per = mats[i + 1], unit = unit, priceSource = src }
-        end
+        s.mats = matsOf(bySpell[s.spell].r, s.crafts, price)
+        s.prereqs = {}
+        for _, cat in ipairs(s.tools or {}) do addTool(s.prereqs, cat, s.from) end
         total = total + s.crafts
         cost = cost + s.cost
+        for _, t in ipairs(s.prereqs) do cost = cost + (t.cost or 0) end
     end
     return { steps = steps, crafts = total, cost = cost, from = from, to = to, mode = opts.mode }
 end

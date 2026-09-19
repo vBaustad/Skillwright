@@ -6,8 +6,7 @@ _G.Skillwright = SW
 local LIB = LibStub("LibForever-1.0")
 SW.LIB = LIB
 
-local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
-SW.VERSION = (getMeta and getMeta(ADDON, "Version")) or "0.0.0"
+SW.VERSION = C_AddOns.GetAddOnMetadata(ADDON, "Version") or "0.0.0"
 
 SW.CREAM = "ffebdec2"
 SW.GOLD = "ffe6b34d"
@@ -58,10 +57,15 @@ end
 
 function SW.Now() return GetServerTime() end
 
+-- Crafting, buying and training don't work in combat: say so instead of failing silently.
+function SW.CombatBlocked(action)
+    if not InCombatLockdown() then return false end
+    SW.msg("|cffff6060can't %s in combat|r - try again when the fight is over.", action)
+    return true
+end
+
 function SW.Money(copper)
-    copper = math.floor((copper or 0) + 0.5)
-    if GetCoinTextureString then return GetCoinTextureString(copper) end
-    return ("%dg %ds %dc"):format(copper / 10000, (copper / 100) % 100, copper % 100)
+    return GetCoinTextureString(math.floor((copper or 0) + 0.5))
 end
 
 -- Short money text for tight rows: "12g", "4s 20c", "35c".
@@ -104,9 +108,10 @@ local DEFAULTS = {
         allowCamp = false,       -- plan recipes that need a Forever camp station
         attach = true,           -- open beside the profession window
         autoOpen = true,         -- open with the profession window
-        hideMinimap = false,
-        minimapAngle = 215,
-        maxPriceAge = 3,         -- days before an auction price counts as stale
+        minimal = false,         -- small window: step, materials, Craft
+        maxPriceAge = 3,         -- days before our own auction scan counts as stale (and is ignored)
+        preferVendor = true,     -- favour recipes whose materials all come from a vendor
+        autoReplaceEnchant = false, -- accept "replace enchant?" for enchants Skillwright started
     },
     learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers
     trainerSeen = {},            -- [recipeSpellID] = true when a trainer offers it
@@ -117,25 +122,30 @@ local DEFAULTS = {
     profNames = {},              -- [skillLineID] = localized name
 }
 
+-- Defaults are filled in once per saved table (not on every call: this runs in sort comparators).
+local merged
 function SW.DB()
-    SkillwrightDB = SkillwrightDB or {}
     local db = SkillwrightDB
+    if db and db == merged then return db end
+    db = db or {}
+    SkillwrightDB = db
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil then db[k] = (type(v) == "table") and CopyTable(v) or v end
     end
     for k, v in pairs(DEFAULTS.settings) do
         if db.settings[k] == nil then db.settings[k] = v end
     end
+    merged = db
     return db
 end
 
 function SW.Settings() return SW.DB().settings end
 
--- Per character: profession ranks, learned recipes, chosen specialization, excluded recipes.
+-- Per character: profession ranks, learned recipes and the chosen specialization.
 function SW.CharDB()
     SkillwrightCharDB = SkillwrightCharDB or {}
     local c = SkillwrightCharDB
-    c.profs = c.profs or {}      -- [skillLineID] = { rank, max, known = { [spell] = true }, spec, exclude = {} }
+    c.profs = c.profs or {}      -- [skillLineID] = { rank, max, known = { [spell] = true }, spec }
     return c
 end
 
@@ -143,11 +153,10 @@ function SW.CharProf(id)
     local profs = SW.CharDB().profs
     local p = profs[id]
     if not p then
-        p = { rank = 0, max = 0, known = {}, exclude = {} }
+        p = { rank = 0, max = 0, known = {} }
         profs[id] = p
     end
     p.known = p.known or {}
-    p.exclude = p.exclude or {}
     return p
 end
 
@@ -167,14 +176,15 @@ end)
 -- Slash commands
 -- ---------------------------------------------------------------------------
 SLASH_SKILLWRIGHT1 = "/skillwright"
-SLASH_SKILLWRIGHT2 = "/sw"
+SLASH_SKILLWRIGHT2 = "/skw"      -- not /sw: that is Blizzard's stopwatch
 SlashCmdList.SKILLWRIGHT = function(input)
-    local cmd, rest = strtrim(input or ""):match("^(%S*)%s*(.-)$")
-    cmd = (cmd or ""):lower()
+    local cmd = (strtrim(input or ""):match("^(%S*)") or ""):lower()
     if cmd == "" then
         SW.ToggleWindow()
-    elseif cmd == "config" or cmd == "options" or cmd == "settings" then
-        SW.ShowWindow(nil, "settings")
+    elseif cmd == "config" or cmd == "settings" then
+        SW.OpenSettings()
+    elseif cmd == "options" then
+        SW.OpenBlizzardOptions()
     elseif cmd == "cheap" or cmd == "fast" then
         SW.SetMode(cmd)
     elseif cmd == "prices" then
@@ -183,7 +193,8 @@ SlashCmdList.SKILLWRIGHT = function(input)
         SW.debug = not SW.debug
         SW.msg("debug %s", SW.debug and "on" or "off")
     else
-        SW.msg("|cffffd100/sw|r guide, |cffffd100/sw cheap|r or |cffffd100/sw fast|r route mode, "
-            .. "|cffffd100/sw prices|r price sources, |cffffd100/sw config|r settings")
+        SW.msg("|cffffd100/skw|r guide, |cffffd100/skw cheap|r or |cffffd100/skw fast|r route mode, "
+            .. "|cffffd100/skw prices|r price sources, |cffffd100/skw config|r settings (also under Options > AddOns > "
+            .. "Skillwright, or |cffffd100/skw options|r)")
     end
 end

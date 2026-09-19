@@ -15,19 +15,6 @@ function U.Window(name, parent, w, h, title)
     bg:SetPoint("BOTTOMRIGHT", -3, 3)
     bg:SetAtlas("heavybronze-frame-background")
     if f.Bg then f.Bg:Hide() end
-    if name then tinsert(UISpecialFrames, name) end
-    return f
-end
-
-function U.Inset(parent)
-    local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    f:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    f:SetBackdropColor(0.03, 0.02, 0.01, 0.45)
-    f:SetBackdropBorderColor(0.85, 0.80, 0.70, 0.9)
     return f
 end
 
@@ -135,7 +122,6 @@ function U.Heading(parent, text)
     line:SetPoint("LEFT", fs, "RIGHT", 6, 0)
     line:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
     fs.line = line
-    function fs:SetShownAll(v) self:SetShown(v); self.line:SetShown(v) end
     return fs
 end
 
@@ -214,7 +200,6 @@ function U.IconButton(parent, size)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     b:SetScript("OnClick", function(self)
         if self.item and self.item > 0 then U.HandleItemClick(self.item) end
-        if self.onClick then self.onClick(self) end
     end)
     function b:Set(item, spell, extra)
         self.item, self.spell, self.extra = item, spell, extra

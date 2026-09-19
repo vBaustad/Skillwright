@@ -5,58 +5,81 @@ local ADDON, SW = ...
 local T = {}
 SW.Trainer = T
 
--- [localized recipe name] = { prof, spell }, built lazily from the recipe data.
-local byName
+-- Lookups built lazily from the recipe data:
+--   byItem[itemID] = { { prof, spell }, ... }      what a service's item link points at
+--   byName[prof][localized recipe name] = spell   for services without an item (enchants)
+local byItem, byName
 
-local function NameIndex()
-    if byName then return byName end
-    byName = {}
-    local getName = C_Spell and C_Spell.GetSpellName or GetSpellInfo
+local function Index()
+    if byItem then return end
+    byItem, byName = {}, {}
     for prof, data in pairs(SW.Data.professions) do
+        byName[prof] = {}
         for _, r in ipairs(data[2]) do
-            local name = getName(r[1])
-            if name and not byName[name] then byName[name] = { prof, r[1] } end
+            if r[2] > 0 then
+                byItem[r[2]] = byItem[r[2]] or {}
+                table.insert(byItem[r[2]], { prof, r[1] })
+            end
+            local name = C_Spell.GetSpellName(r[1])
+            if name and not byName[prof][name] then byName[prof][name] = r[1] end
         end
     end
-    return byName
 end
 
-local function ByItemLink(link, prof)
-    local id = link and tonumber(link:match("item:(%d+)"))
-    if not id then return nil end
-    for p, data in pairs(SW.Data.professions) do
-        if not prof or p == prof then
-            for _, r in ipairs(data[2]) do
-                if r[2] == id then return p, r[1] end
-            end
-        end
-    end
+local function LinkItem(i)
+    local link = GetTrainerServiceItemLink(i)
+    return link and tonumber(link:match("item:(%d+)"))
 end
 
 T.services = {}     -- [spell] = { index, type } for the open trainer
 T.prof = nil        -- profession of the open trainer
 
+-- Match every service to a recipe. Recipe names aren't unique (two "Faction Banner"s, two "Dark Leather
+-- Boots"), so the item a service makes decides first - within the trainer's own profession - and the
+-- name is only used for services that make no item.
 local function Scan()
-    if not GetNumTrainerServices then return end
     wipe(T.services)
     T.prof = nil
+    Index()
     local db = SW.DB()
-    local names = NameIndex()
-    local profCount = {}
     local n = GetNumTrainerServices() or 0
-    local learned = 0
+
+    -- 1. which profession is this trainer for? The one most of its item links belong to.
+    local profCount = {}
     for i = 1, n do
+        local _, _, kind = GetTrainerServiceInfo(i)
+        local id = kind ~= "header" and LinkItem(i)
+        for _, hit in ipairs(id and byItem[id] or {}) do profCount[hit[1]] = (profCount[hit[1]] or 0) + 1 end
+    end
+    local prof, bestN = nil, 0
+    for p, c in pairs(profCount) do if c > bestN then prof, bestN = p, c end end
+    if not prof then
+        -- an enchanting trainer's services make no items: fall back to names
+        local nameCount = {}
+        for i = 1, n do
+            local name, _, kind = GetTrainerServiceInfo(i)
+            if name and kind ~= "header" then
+                for p, names in pairs(byName) do
+                    if names[name] then nameCount[p] = (nameCount[p] or 0) + 1 end
+                end
+            end
+        end
+        for p, c in pairs(nameCount) do if c > bestN then prof, bestN = p, c end end
+    end
+    T.prof = prof
+
+    -- 2. each service -> its recipe in that profession
+    local learned = 0
+    for i = 1, (prof and n or 0) do
         local name, _, kind = GetTrainerServiceInfo(i)
         if name and kind ~= "header" then
-            local hit = names[name]
-            local prof, spell
-            if hit then
-                prof, spell = hit[1], hit[2]
-            else
-                prof, spell = ByItemLink(GetTrainerServiceItemLink and GetTrainerServiceItemLink(i))
+            local spell
+            local id = LinkItem(i)
+            for _, hit in ipairs(id and byItem[id] or {}) do
+                if hit[1] == prof then spell = hit[2] break end
             end
+            if not spell and not id then spell = byName[prof][name] end
             if spell then
-                profCount[prof] = (profCount[prof] or 0) + 1
                 T.services[spell] = { index = i, type = kind, prof = prof }
                 db.trainerSeen[spell] = true
                 local _, rank = GetTrainerServiceSkillReq(i)
@@ -66,7 +89,7 @@ local function Scan()
                 end
                 -- Abilities it asks for beyond the profession itself = a specialization.
                 local cp = SW.CharProf(prof)
-                for j = 1, (GetTrainerServiceNumAbilityReq and GetTrainerServiceNumAbilityReq(i) or 0) do
+                for j = 1, GetTrainerServiceNumAbilityReq(i) or 0 do
                     local ability, has = GetTrainerServiceAbilityReq(i, j)
                     if ability and ability ~= SW.ProfName(prof) then
                         db.specReq[spell] = ability
@@ -76,18 +99,11 @@ local function Scan()
             end
         end
     end
-    local best, bestN = nil, 0
-    for p, c in pairs(profCount) do if c > bestN then best, bestN = p, c end end
-    T.prof = best
     if learned > 0 then
         SW.dbg("trainer: learned the required skill of %d recipes", learned)
         SW.Fire("TRAINER_FACTS")
     end
     SW.Fire("TRAINER_CHANGED")
-end
-
-function T.IsOpen()
-    return T.prof ~= nil and ((ClassTrainerFrame and ClassTrainerFrame:IsShown()) or next(T.services) ~= nil)
 end
 
 -- Services at the open trainer that the current route uses and can be learned now.
@@ -106,6 +122,7 @@ function T.RouteServices(prof, route)
 end
 
 function T.Train(list)
+    if SW.CombatBlocked("train") then return end
     -- Highest index first: learning a service can shift the ones after it.
     table.sort(list, function(a, b) return a.index > b.index end)
     for _, svc in ipairs(list) do BuyTrainerService(svc.index) end

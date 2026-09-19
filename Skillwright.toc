@@ -1,20 +1,29 @@
-## Interface: 120100, 120105
+## Interface: 16001
 ## Title: Skillwright
-## Notes: Profession leveling for WoW: Forever - the cheapest or fastest route to max skill, planned from the game's own recipe data and live prices.
+## Category: YippYapp
+## Notes: Profession leveling for WoW: Forever - the cheapest or fastest route to max skill, planned from the game's own recipe data and live prices. Part of YippYapp - addons for WoW: Forever that work even better together.
 ## Author: vebjorn
-## Version: 0.1.0
+## Version: 0.1.0-beta1
 ## SavedVariables: SkillwrightDB
 ## SavedVariablesPerCharacter: SkillwrightCharDB
-## IconTexture: Interface\AddOns\Skillwright\Media\notch
+## IconTexture: Interface\AddOns\Skillwright\Media\icon
 ## AddonCompartmentFunc: Skillwright_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: Skillwright_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: Skillwright_OnAddonCompartmentLeave
 ## X-Category: Professions
+## X-Website: https://github.com/vBaustad/Skillwright-Forever
 ## X-License: MIT
 
 Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\lib.xml
 Libs\LibForever-1.0\LibForever-1.0.lua
 Libs\LibForever-1.0\Launcher.lua
+Libs\LibForever-1.0\Windows.lua
+Libs\LibForever-1.0\Minimap.lua
+Libs\LibForever-1.0\Welcome.lua
+Libs\LibForever-1.0\Settings.lua
 
 Core\Core.lua
 Data\Recipes.lua
@@ -24,7 +33,11 @@ Core\Professions.lua
 Core\Prices.lua
 Core\Trainer.lua
 Core\Plan.lua
+Core\Enchant.lua
 
 UI\Widgets.lua
+UI\Settings.lua
 UI\Window.lua
 UI\Launcher.lua
+UI\Welcome.lua
+UI\Options.lua
