@@ -11,7 +11,7 @@
 ## AddonCompartmentFuncOnEnter: Skillwright_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: Skillwright_OnAddonCompartmentLeave
 ## X-Category: Professions
-## X-Website: https://github.com/vBaustad/Skillwright-Forever
+## X-Website: https://github.com/vBaustad/Skillwright
 ## X-License: MIT
 
 Libs\LibStub\LibStub.lua
