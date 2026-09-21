@@ -244,8 +244,7 @@ local function BuyTotal(list)
 end
 
 local function ItemLabel(id)
-    local name = C_Item.GetItemNameByID(id)
-    return name or ("item " .. id)
+    return (SW.ItemName(id)) or ("item " .. id)
 end
 
 function Pr.BuyTooltip(owner, list)

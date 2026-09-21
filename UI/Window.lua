@@ -18,9 +18,12 @@ local function Cost(copper, estimated)
     return (estimated and "|cff8a8a8aest.|r " or "") .. SW.MoneyShort(copper)
 end
 
+-- An item's name, while the client is still loading it, and if it never arrives.
 local function ItemText(id)
-    local name = U.ItemName(id)
-    return name and (U.ItemQualityColor(id) .. name .. "|r") or ("|cff8a8a8aitem " .. id .. "|r")
+    local name, waits = SW.ItemName(id)
+    if name then return U.ItemQualityColor(id) .. name .. "|r" end
+    if waits > 6 then return ("|cff8a8a8aUnknown item (%d)|r"):format(id) end
+    return "|cff8a8a8aLoading...|r"
 end
 
 local function SourceTag(src)
@@ -377,7 +380,11 @@ local function RefreshNow(f)
         else
             info[#info + 1] = ("This step costs about %s%s."):format(Cost(s.costEach * cur.left, estimated),
                 estimated and " |cff8a8a8a(some prices are estimates)|r" or "")
-            if s.vendorOnly then info[#info + 1] = "|cff40bf40Every material comes from a vendor.|r" end
+            if s.haveMats then
+                info[#info + 1] = "|cff40bf40You already have the materials for this.|r"
+            elseif s.vendorOnly then
+                info[#info + 1] = "|cff40bf40Every material comes from a vendor.|r"
+            end
         end
         if #bankLines > 0 then info[#info + 1] = "|cff7da5ffIn your bank:|r " .. table.concat(bankLines, ", ") end
         c.info:SetText(table.concat(info, "\n"))
@@ -564,7 +571,7 @@ local function RefreshRoute(f)
             for _, m in ipairs(s.mats) do if Est(m.priceSource) then est = true end end
             local known = SW.Prof.Knows(prof, s.spell)
             r.text:SetText((known and "" or "|cffff8040*|r ") .. U.RecipeName(s.spell) .. " " .. SourceTag(s.source)
-                .. (s.vendorOnly and " |cff40bf40(vendor mats)|r" or ""))
+                .. (s.haveMats and " |cff40bf40(have mats)|r" or s.vendorOnly and " |cff40bf40(vendor mats)|r" or ""))
             local crafts = current and Plan.CraftsLeft(s, rank) or s.crafts
             r.right:SetText(("x%d  %s"):format(crafts, Cost(crafts * s.costEach, est)))
             r.tipItem, r.tipSpell, r.tipExtra = s.item, s.spell, StepTooltip(s)
@@ -1100,7 +1107,8 @@ for _, ev in ipairs({ "PLAN_CHANGED", "RANKS_CHANGED", "MERCHANT_CHANGED", "TRAI
     SW.Listen(ev, SW.RefreshWindow)
 end
 SW.On("BAG_UPDATE_DELAYED", SW.RefreshWindow)
-SW.On("GET_ITEM_INFO_RECEIVED", function() SW.Debounce("itemInfo", 0.4, Refresh) end)
+-- names arrive one item at a time: coalesce the redraws, but don't let a stream of them postpone it
+SW.On("GET_ITEM_INFO_RECEIVED", function() SW.Coalesce("itemInfo", 0.3, Refresh) end)
 SW.On("AUCTION_HOUSE_SHOW", SW.RefreshWindow)
 SW.On("AUCTION_HOUSE_CLOSED", SW.RefreshWindow)
 SW.On("TRADE_SKILL_LIST_UPDATE", SW.RefreshWindow)

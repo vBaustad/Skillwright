@@ -23,6 +23,9 @@ local FAST_VENDOR_PENALTY = 0.75
 -- Materials with no price at all (not sold by vendors, no auction data) may not be for sale anywhere - think
 -- enchanting essences, which only come from disenchanting. They count this many times their guessed price.
 local EST_BIAS = 4
+-- Materials already in your bags or bank (opts.haveMats) count this fraction of their price: not free, so a
+-- small pile can't win a step that needs hundreds, but enough that using what you have wins a close call.
+local HAVE_DISCOUNT = 0.1
 
 SW.Solver = SW.Solver or {}
 local Solver = SW.Solver
@@ -106,6 +109,10 @@ function Solver.NewPricer(prof, opts)
             local est = facts and max(1, facts[2] * 4, (facts[5] or 0) ^ 2 * 2) or 1000
             if not best or est < best then best, src = est, "est" end
         end
+        -- already in the bags or bank (Plan decides what counts: enough of it, and not valuable or rare)
+        if opts.haveMats and opts.haveMats[id] then
+            best, src = best * HAVE_DISCOUNT, "have"
+        end
         cache[id] = { best, src }
         return best, src
     end
@@ -116,11 +123,13 @@ end
 -- Also returns whether every material comes from a vendor, and the cost weighted for "prefer vendor".
 local function craftCost(r, price, preferVendor)
     local sum, vendorSum, weighted, mats = 0, 0, 0, r[F_MATS]
+    local haveAll = #mats > 0
     for i = 1, #mats, 2 do
         local unit, src = price(mats[i])
         local c = mats[i + 1] * unit
         sum = sum + c
-        if src == "vendor" then
+        if src ~= "have" then haveAll = false end
+        if src == "vendor" or src == "have" then
             vendorSum = vendorSum + c
             weighted = weighted + c
         elseif src == "est" then
@@ -136,7 +145,7 @@ local function craftCost(r, price, preferVendor)
         sum = max(sum - resale, sum * 0.1)
         weighted = max(weighted - resale, weighted * 0.1)
     end
-    return sum, vendorOnly, weighted
+    return sum, vendorOnly, weighted, haveAll
 end
 
 ---------------------------------------------------------------------------------------------------- tools
@@ -240,6 +249,7 @@ end
 --   learnRanks    { [spell] = rank } skill needed to learn, seen at trainers
 --   vendorPrices  { [item] = copper } unit prices seen on merchants
 --   market        function(item) -> copper|nil
+--   haveMats      { [item] = true } materials already in the bags or bank, worth counting as good as owned
 --   owned         { [item] = true } tools the character already has
 --   allowCamp     include recipes that need a camp station
 -- Returns { steps = { step, ... }, crafts = n, cost = copper, gapAt = rank|nil }
@@ -257,8 +267,8 @@ function Solver.Solve(prof, opts)
     local cands, bySpell, makers = {}, {}, {}
     for _, r in ipairs(data[2]) do
         if usable(r, opts) then
-            local cost, vendorOnly, weighted = craftCost(r, price, preferVendor)
-            local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted }
+            local cost, vendorOnly, weighted, haveAll = craftCost(r, price, preferVendor)
+            local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted, haveMats = haveAll }
             cands[#cands + 1] = c
             bySpell[r[F_SPELL]] = c
             if r[F_ITEM] > 0 and not makers[r[F_ITEM]] then makers[r[F_ITEM]] = r end
@@ -359,6 +369,7 @@ function Solver.Solve(prof, opts)
             step = { from = rank, to = rank, spell = r[F_SPELL], item = r[F_ITEM], qty = r[F_QTY],
                      yellow = r[F_YELLOW], grey = r[F_GREY], source = r[F_SRC], recipeItem = r[F_RITEM],
                      station = r[F_STATION], learn = learn, learnEstimated = est, vendorOnly = c.vendorOnly,
+                     haveMats = c.haveMats,
                      attempts = 0, costEach = c.cost, tools = r[F_TOOLS] }
             steps[#steps + 1] = step
         end

@@ -57,6 +57,21 @@ end
 
 function SW.Now() return GetServerTime() end
 
+-- Item names come from the client's item cache, which may not have them yet. Ask for the data and say how
+-- many times we've had to wait, so the UI can show "Loading..." and then give up gracefully.
+local nameWaits = {}
+function SW.ItemName(id)
+    if not id or id == 0 then return nil, 0 end
+    local name = C_Item.GetItemNameByID(id) or C_Item.GetItemInfo(id)
+    if name then
+        nameWaits[id] = nil
+        return name, 0
+    end
+    nameWaits[id] = (nameWaits[id] or 0) + 1
+    C_Item.RequestLoadItemDataByID(id)
+    return nil, nameWaits[id]
+end
+
 -- Crafting, buying and training don't work in combat: say so instead of failing silently.
 function SW.CombatBlocked(action)
     if not InCombatLockdown() then return false end
@@ -83,6 +98,16 @@ end
 -- ---------------------------------------------------------------------------
 SW.On = LIB.On
 SW.Debounce = LIB.Debounce
+
+-- Run at most once per window: later calls while one is pending are folded into it.
+local coalesced = {}
+function SW.Coalesce(key, delay, fn)
+    if coalesced[key] then return end
+    coalesced[key] = C_Timer.NewTimer(delay, function()
+        coalesced[key] = nil
+        fn()
+    end)
+end
 
 local listeners = {}
 function SW.Listen(name, fn)
@@ -111,6 +136,7 @@ local DEFAULTS = {
         minimal = false,         -- small window: step, materials, Craft
         maxPriceAge = 3,         -- days before our own auction scan counts as stale (and is ignored)
         preferVendor = true,     -- favour recipes whose materials all come from a vendor
+        useOwned = true,         -- count materials already in the bags or bank as (nearly) free
         autoReplaceEnchant = false, -- accept "replace enchant?" for enchants Skillwright started
     },
     learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers

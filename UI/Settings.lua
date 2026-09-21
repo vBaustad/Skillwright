@@ -78,6 +78,9 @@ function Page.Build(f)
     checkbox("Prefer materials from vendors", "preferVendor",
         "Recipes whose materials you can simply buy come first, even if that means a few more crafts.",
         function() Plan.Invalidate() end)
+    checkbox("Use materials I already have", "useOwned",
+        "Steps you can already make from what's in your bags or bank come first. Valuable (over 1g each) or "
+        .. "rare materials are never counted as free.", function() Plan.Invalidate() end)
     checkbox("Use camp stations", "allowCamp",
         "Also plan recipes that need a Forever camp station (Tanning Rack, Spinning Wheel, Master Forge ...). "
         .. "Leave off unless you have one.", function() Plan.Invalidate() end)

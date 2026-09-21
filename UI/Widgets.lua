@@ -140,12 +140,7 @@ end
 -- Items and recipes
 -- ---------------------------------------------------------------------------
 function U.ItemName(id)
-    local name = C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
-    if not name then
-        C_Item.RequestLoadItemDataByID(id)
-        return nil
-    end
-    return name
+    return SW.ItemName(id)
 end
 
 function U.ItemIcon(id)

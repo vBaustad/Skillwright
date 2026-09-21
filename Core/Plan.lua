@@ -48,8 +48,51 @@ function Plan.Options(prof, from)
         allowCamp = s.allowCamp,
         preferVendor = s.preferVendor,
         owned = Plan.OwnedTools(),
+        haveMats = s.useOwned ~= false and Plan.HaveMats(prof) or nil,
         spec = Plan.Spec(prof),
     }
+end
+
+-- Materials this profession's recipes use, worked out once per profession.
+local matsOf = {}
+local function ProfessionMats(prof)
+    local set = matsOf[prof]
+    if set then return set end
+    set = {}
+    for _, r in ipairs(SW.Data.professions[prof][2]) do
+        local mats = r[10]
+        for i = 1, #mats, 2 do set[mats[i]] = true end
+    end
+    matsOf[prof] = set
+    return set
+end
+
+-- Materials you already have enough of to be worth using: at least MIN_HAVE in the bags or bank, and not
+-- something you'd regret burning - nothing worth more than HAVE_MAX_VALUE each, nothing rare or better.
+local MIN_HAVE = 10
+local HAVE_MAX_VALUE = 10000     -- 1g per unit
+local haveSig = {}
+
+function Plan.HaveMats(prof)
+    local have, sig = {}, {}
+    for id in pairs(ProfessionMats(prof)) do
+        local count = Plan.Count(id, true)
+        if count >= MIN_HAVE then
+            local quality = C_Item.GetItemQualityByID(id)
+            local facts = SW.Data.items[id]
+            local unit = SW.Prices.Market(id)
+                or (facts and facts[1] > 0 and facts[1])
+                or (facts and facts[2] * 4)
+                or 0
+            if (not quality or quality < 3) and unit <= HAVE_MAX_VALUE then
+                have[id] = true
+                sig[#sig + 1] = id
+            end
+        end
+    end
+    table.sort(sig)
+    haveSig[prof] = table.concat(sig, ",")
+    return have
 end
 
 -- Tools the character has (bags or bank): rods, hammers, spanners ...
@@ -242,10 +285,22 @@ for _, ev in ipairs({ "RECIPES_CHANGED", "TRAINER_FACTS", "PRICES_CHANGED" }) do
     end)
 end
 -- A tool arriving in (or leaving) the bags changes which recipes are possible.
+-- Picking things up shouldn't re-plan constantly: only when the set of tools, or of materials we have
+-- enough of, actually changes - and then at most once every few seconds.
 SW.On("BAG_UPDATE_DELAYED", function()
-    local _, sig = Plan.OwnedTools()
-    if ownedSig and sig ~= ownedSig then Plan.Invalidate() end
-    ownedSig = sig
+    SW.Coalesce("bagsChanged", 3, function()
+        local _, sig = Plan.OwnedTools()
+        local changed = ownedSig and sig ~= ownedSig
+        ownedSig = sig
+        if SW.Settings().useOwned ~= false then
+            for prof in pairs(cache) do
+                local before = haveSig[prof]
+                Plan.HaveMats(prof)
+                if before and haveSig[prof] ~= before then changed = true end
+            end
+        end
+        if changed then Plan.Invalidate() end
+    end)
 end)
 -- Vendor prices change the plan only a little; re-plan when the merchant closes.
 SW.Listen("MERCHANT_CHANGED", function()

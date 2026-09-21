@@ -1,5 +1,12 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta2
+
+- Materials you already have count in the route: with plenty of Linen Cloth, First Aid suggests bandages first. Rare and expensive materials are never used up this way. Turn it off with "Use materials I already have".
+- The guide opens beside the profession window again.
+- Items in the shopping list show their names instead of "item 6338".
+- Settings are also under Options > AddOns > YippYapp > Skillwright.
+
 ## 0.1.0-beta1
 
 The first beta of Skillwright for WoW: Forever. Instead of a hand-written guide, Skillwright plans your
