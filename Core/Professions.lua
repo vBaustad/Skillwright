@@ -14,6 +14,9 @@ local function RememberName(id, name)
     if id and name and name ~= "" then SW.DB().profNames[id] = name end
 end
 
+local GATHERING = { [182] = true, [186] = true, [393] = true }   -- Herbalism, Mining, Skinning
+local SECONDARY = { [185] = true, [129] = true }                 -- Cooking, First Aid
+
 -- Ranks of every profession the character has, without opening any window. Asked per skill line ID:
 -- walking the skill list by index only sees lines under expanded headers, and a collapsed
 -- "Professions" header would make every profession look forgotten.
@@ -24,6 +27,13 @@ function P.ScanRanks()
         local s = C_SkillInfo.GetSkillLineInfoByID(id)
         local has = s and not s.isHeader and (s.rank or 0) > 0
         if has then RememberName(id, s.name) end
+        if GATHERING[id] then
+            local g = SW.CharDB().gathering
+            if (g[id] or false) ~= (has or false) then
+                g[id] = has or nil
+                changed = true
+            end
+        end
         if SW.PROFESSIONS[id] then
             local p = SW.CharProf(id)
             if has then
@@ -37,7 +47,27 @@ function P.ScanRanks()
             end
         end
     end
+    P.scanned = true
     if changed then SW.Fire("RANKS_CHANGED") end
+end
+
+-- The character has no crafting profession Skillwright plans (gathering ones don't count, nor do Cooking and
+-- First Aid). False until the skill lines have been read once, so a slow login never flashes "choose one".
+function P.NoCrafting()
+    if not P.scanned then return false end
+    for id in pairs(SW.PROFESSIONS) do
+        if not SECONDARY[id] and SW.CharProf(id).has then return false end
+    end
+    return true
+end
+
+-- The character's gathering professions (skill line IDs, in a fixed order).
+function P.Gathering()
+    local list, g = {}, SW.CharDB().gathering
+    for _, id in ipairs({ 186, 182, 393 }) do
+        if g[id] then list[#list + 1] = id end
+    end
+    return list
 end
 
 -- Learned recipes without opening the profession window: IsPlayerSpell knows recipe spells in Forever

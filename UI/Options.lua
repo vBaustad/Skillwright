@@ -15,7 +15,6 @@ local function Build()
     open:SetPoint("TOPRIGHT", -40, -12)
     open:SetFrameLevel(panel:GetFrameLevel() + 10)
     open:SetScript("OnClick", function()
-        if SettingsPanel and SettingsPanel:IsShown() and not InCombatLockdown() then SettingsPanel:Close() end
         SW.ShowWindow(nil, "now")
     end)
 

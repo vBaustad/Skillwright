@@ -130,7 +130,6 @@ end
 local DEFAULTS = {
     settings = {
         mode = "cheap",          -- "cheap" or "fast"
-        allowCamp = false,       -- plan recipes that need a Forever camp station
         attach = true,           -- open beside the profession window
         autoOpen = true,         -- open with the profession window
         minimal = false,         -- small window: step, materials, Craft
@@ -172,6 +171,7 @@ function SW.CharDB()
     SkillwrightCharDB = SkillwrightCharDB or {}
     local c = SkillwrightCharDB
     c.profs = c.profs or {}      -- [skillLineID] = { rank, max, known = { [spell] = true }, spec }
+    c.gathering = c.gathering or {}   -- [skillLineID] = true for Herbalism, Mining, Skinning
     return c
 end
 
@@ -215,6 +215,8 @@ SlashCmdList.SKILLWRIGHT = function(input)
         SW.SetMode(cmd)
     elseif cmd == "prices" then
         SW.Prices.PrintStatus()
+    elseif cmd == "debug" and strtrim(input or ""):lower():match("^debug%s+passives") then
+        SW.Probe.Run()
     elseif cmd == "debug" then
         SW.debug = not SW.debug
         SW.msg("debug %s", SW.debug and "on" or "off")

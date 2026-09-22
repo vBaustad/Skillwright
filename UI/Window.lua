@@ -26,9 +26,24 @@ local function ItemText(id)
     return "|cff8a8a8aLoading...|r"
 end
 
+-- Tier-1 camp recipes: the quest "Camping 101: <Profession>" (from a camping NPC, not the trainer) at skill 20.
+local CAMP_QUEST_HINT = "taught by the quest \"Camping 101\" from a camping NPC (not the trainer) once your "
+    .. "skill is 20."
+
+-- What "est." means right now: before any auction prices it's a hint to scan; after a scan, the item simply
+-- wasn't listed (or Auctionator/TSM has no price for it).
+local function EstNote()
+    local status = SW.Prices.Status()
+    if status == "none" or status == "stale" then
+        return "est. = estimated price. Open the auction house and press Scan prices for real ones."
+    end
+    return "est. = nobody was selling it at the auction house, so the price is estimated."
+end
+
 local function SourceTag(src)
     if src == "r" then return "|cff8a8a8a(recipe)|r" end
     if src == "q" then return "|cff8a8a8a(quest)|r" end
+    if src == "c" then return "|cff8a8a8a(camp quest)|r" end
     local spec = src and src:match("^s:(.+)$")
     if spec then return "|cff8a8a8a(" .. spec .. ")|r" end
     return ""
@@ -228,7 +243,9 @@ local function StepTooltip(step)
         for _, m in ipairs(step.mats) do
             tt:AddDoubleLine(m.count .. " x " .. ItemText(m.id), Cost(m.count * m.unit, Est(m.priceSource)), 1, 1, 1, 1, 1, 1)
         end
-        if step.source ~= "r" and step.source ~= "q" then
+        if step.source == "c" then
+            tt:AddLine((CAMP_QUEST_HINT:gsub("^%l", string.upper)), 0.7, 0.7, 0.7, true)
+        elseif step.source ~= "r" and step.source ~= "q" then
             tt:AddLine(("Learn at a trainer from skill %d%s"):format(step.learn, step.learnEstimated and " (estimate)" or ""), 0.7, 0.7, 0.7)
         end
     end
@@ -329,6 +346,8 @@ local function RefreshNow(f)
             local svc = SW.Trainer.services[subject.spell]
             if svc and svc.type == "available" then
                 learn = "|cffff8040Not learned yet|r - this trainer teaches it."
+            elseif subject.source == "c" then
+                learn = "|cffff8040Not learned yet|r - " .. CAMP_QUEST_HINT
             elseif subject.source and subject.source:match("^s:") then
                 learn = ("|cffff8040Not learned yet|r - a %s specialization recipe."):format(subject.source:sub(3))
             else
@@ -669,7 +688,7 @@ local function RefreshShop(f)
         f.hint:Show()
     end
     f.total:SetText(("Total: %s%s"):format(Cost(total, est),
-        est and "\n|cff8a8a8aest. = includes estimates. Open the auction house and press Scan prices for real ones.|r" or ""))
+        est and ("\n|cff8a8a8a" .. EstNote() .. "|r") or ""))
     f.total:ClearAllPoints()
     f.total:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y - 10)
     f.total:SetWidth(c:GetWidth() - 10)
@@ -822,8 +841,87 @@ function SW.SetMinimal(on)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- No crafting profession yet (gathering-only counts as none): "choose a profession" instead of an empty
+-- planner (UI/Dashboard.lua).
+-- Not when the guide opened with a profession window, for a particular profession or tab, or after a
+-- card was clicked to preview a route; closing the guide brings it back.
+-- ---------------------------------------------------------------------------
+local function FirstPrimary()
+    for _, id in ipairs(SW.Prof.Mine()) do
+        if id ~= 185 and id ~= 129 then return id end
+    end
+    return SW.DefaultProf()
+end
+
+-- Shows or hides the dashboard; true while it is showing.
+local function UpdateDashboard()
+    if not (SW.Dashboard and SW.Prof.NoCrafting() and not win.attached and not win.dashSkip) then
+        if win.dash and win.dash:IsShown() then
+            win.dash:Hide()
+            win.sizeBtn:Show()
+            -- just learned one: plan that, not the last preview
+            if not SW.Prof.NoCrafting() then
+                win.prof = FirstPrimary()
+                SW.CharDB().lastProf = win.prof
+            end
+        end
+        return false
+    end
+    if not win.dash then
+        win.dash = CreateFrame("Frame", nil, win)
+        win.dash:SetPoint("TOPLEFT", 16, -30)
+        win.dash:SetPoint("BOTTOMRIGHT", -12, 12)
+        SW.Dashboard.Build(win.dash, function(id)
+            win.dashSkip = true
+            win.prof = id
+            SW.CharDB().lastProf = id
+            SW.RefreshWindow()
+        end)
+    end
+    for _, w in ipairs(win.fullOnly) do w:Hide() end
+    if win.mini then win.mini:Hide() end
+    win.sizeBtn:Hide()
+    win:SetSize(W, H)
+    win.dash:Show()
+    SW.Dashboard.Refresh(win.dash)
+    return true
+end
+
+-- The strip that says costs are estimates until there are auction prices; the body moves down under it.
+local function UpdatePriceNote()
+    local note, status = win.priceNote, SW.Prices.Status()
+    local text
+    if win.view ~= "settings" and (status == "none" or status == "stale") then
+        local atAH = SW.Prices.CanScan()
+        if status == "stale" then
+            text = ("|cffffd100Auction prices are out of date|r (scanned %s), so costs are estimates again. %s")
+                :format(SW.Prices.Ago(SW.DB().ahScanned), atAH and "Press |cffffd100Scan prices|r below."
+                    or "Scan again at the auction house.")
+        else
+            text = "|cffffd100No auction prices yet|r - costs are estimates (marked est.). "
+                .. (atAH and "Press |cffffd100Scan prices|r below - it takes a few seconds."
+                    or "Open the auction house and press |cffffd100Scan prices|r (or install Auctionator or TSM).")
+        end
+    end
+    win.body:ClearAllPoints()
+    win.body:SetPoint("BOTTOMRIGHT", -12, 40)
+    if text then
+        note.text:SetText(text)
+        note:SetHeight(math.ceil(note.text:GetStringHeight()) + 10)
+        note:Show()
+        -- wrapped height is only right once the strip has its width
+        C_Timer.After(0, function() note:SetHeight(math.ceil(note.text:GetStringHeight()) + 10) end)
+        win.body:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -6)
+    else
+        note:Hide()
+        win.body:SetPoint("TOPLEFT", 16, -98)
+    end
+end
+
 local function Refresh()
     if not win or not win:IsShown() then return end
+    if UpdateDashboard() then return end
     ApplyMode()
     if SW.Settings().minimal then
         RefreshMini()
@@ -838,6 +936,7 @@ local function Refresh()
         win.profText:SetText(("%s  |cff8a8a8a(preview)|r"):format(SW.ProfName(prof)))
     end
     win.mode:Select(SW.Settings().mode)
+    UpdatePriceNote()
     local v = views[win.view]
     if v and v.frame then v.refresh(v.frame) end
     -- Footer: where prices come from, and the scan button at the auction house.
@@ -927,6 +1026,12 @@ local function OpenProfMenu(owner)
     if MenuUtil and MenuUtil.CreateContextMenu then
         MenuUtil.CreateContextMenu(owner, function(_, root)
             root:CreateTitle("Profession")
+            if SW.Prof.NoCrafting() then
+                root:CreateButton("|cffffd100Choosing a profession|r", function()
+                    win.dashSkip = false
+                    Refresh()
+                end)
+            end
             local mine = {}
             for _, id in ipairs(SW.Prof.Mine()) do mine[id] = true end
             for _, id in ipairs(SW.Prof.All()) do
@@ -1000,6 +1105,24 @@ local function Build()
     win.body:SetPoint("TOPLEFT", 16, -98)
     win.body:SetPoint("BOTTOMRIGHT", -12, 40)
 
+    -- "No auction prices yet": a strip above the tabs' content while costs are estimates
+    local note = CreateFrame("Frame", nil, win)
+    note:SetPoint("TOPLEFT", 16, -96)
+    note:SetPoint("RIGHT", win, "RIGHT", -14, 0)
+    note.bg = note:CreateTexture(nil, "BACKGROUND")
+    note.bg:SetAllPoints()
+    note.bg:SetColorTexture(1, 0.82, 0, 0.08)
+    note.edge = note:CreateTexture(nil, "BORDER")
+    note.edge:SetPoint("TOPLEFT")
+    note.edge:SetPoint("BOTTOMLEFT")
+    note.edge:SetWidth(2)
+    note.edge:SetColorTexture(1, 0.82, 0, 0.8)
+    note.text = U.Text(note, "GameFontHighlightSmall", "LEFT", true)
+    note.text:SetPoint("TOPLEFT", 8, -5)
+    note.text:SetPoint("RIGHT", note, "RIGHT", -6, 0)
+    note:Hide()
+    win.priceNote = note
+
     win.scan = U.Button(win, "Scan prices", 100, 22)
     win.scan:SetPoint("BOTTOMRIGHT", -14, 12)
     win.scan:SetScript("OnClick", function() SW.Prices.StartScan() end)
@@ -1033,7 +1156,7 @@ local function Build()
     end)
     win.sizeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- Everything the minimal window hides
-    win.fullOnly = { pb, win.mode, divider, win.body, win.scan, win.status, win.statusHit }
+    win.fullOnly = { pb, win.mode, divider, win.body, win.scan, win.status, win.statusHit, win.priceNote }
     for _, b in ipairs(win.tabs.buttons) do win.fullOnly[#win.fullOnly + 1] = b end
 
     views.now = { build = BuildNow, refresh = RefreshNow }
@@ -1041,7 +1164,11 @@ local function Build()
     views.shop = { build = BuildShop, refresh = RefreshShop }
     views.settings = { build = SW.SettingsPage.Build, refresh = function(f) SW.SettingsPage.Refresh(f, win.prof) end }
 
-    win:HookScript("OnShow", function() SW.RefreshWindow() end)
+    win:HookScript("OnShow", function()
+        SW.Prof.ScanRanks()
+        SW.RefreshWindow()
+    end)
+    win:HookScript("OnHide", function() win.dashSkip = false end)
     win:Hide()
 end
 
@@ -1054,6 +1181,8 @@ function SW.ShowWindow(prof, view, attached)
     -- asking for a particular tab (settings from /skw config) needs the full window
     if view and view ~= "now" and SW.Settings().minimal then SW.Settings().minimal = false end
     win.attached = attached and true or false
+    -- asked for a profession or a tab: show it, not "choose a profession"
+    if prof or attached or (view and view ~= "now") then win.dashSkip = true end
     SW.Anchor()
     win:Show()
     -- the shared window handling places a window on its first show; attached, we sit by the profession window

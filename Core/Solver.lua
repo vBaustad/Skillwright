@@ -58,12 +58,18 @@ function Solver.LearnRank(r, opts, fallback)
     return max(1, r[F_YELLOW] - (fallback and LEARN_GAP_FALLBACK or LEARN_GAP)), true
 end
 
+-- Recipes only one faction can learn (the data lists both as trainer recipes).
+local FACTION_ONLY = { [1229504] = "Horde", [1263425] = "Alliance" }   -- Faction Banner
+
 -- Whether a recipe may be used at all (source + station rules), independent of rank.
 local function usable(r, opts)
     if r[F_CAMP] and not opts.allowCamp then return false end
     if opts.known and opts.known[r[F_SPELL]] then return true end
+    local only = FACTION_ONLY[r[F_SPELL]]
+    if only and opts.faction and opts.faction ~= only then return false end
     local src = r[F_SRC]
-    if src == "t" or src == "a" then return true end
+    -- "c": the tier-1 camp recipe, from the quest "Camping 101" at skill 20 (open to everyone)
+    if src == "t" or src == "a" or src == "c" then return true end
     -- specialization recipes: when the player has (or plans) that specialization
     local spec = src:match("^s:(.+)$")
     if spec then return opts.spec ~= nil and opts.spec == spec end

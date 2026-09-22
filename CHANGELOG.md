@@ -1,5 +1,11 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta3
+
+- **No crafting profession yet?** Skillwright opens a "Choose a profession" page: what each profession is good for, the gathering profession that goes with it (highlighted if you already have one), and a click to preview its route. Learn one and the planner takes over by itself.
+- Camp recipes (Camp Tent, Sharpening Wheel, Fish Bowl...) are marked as taught by the "Camping 101" quest at skill 20, not by the trainer. Faction Banners show only for your faction.
+- Changing settings no longer closes the Options window, which could cause an error.
+
 ## 0.1.0-beta2
 
 - Materials you already have count in the route: with plenty of Linen Cloth, First Aid suggests bandages first. Rare and expensive materials are never used up this way. Turn it off with "Use materials I already have".

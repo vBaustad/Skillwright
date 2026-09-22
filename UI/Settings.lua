@@ -81,9 +81,6 @@ function Page.Build(f)
     checkbox("Use materials I already have", "useOwned",
         "Steps you can already make from what's in your bags or bank come first. Valuable (over 1g each) or "
         .. "rare materials are never counted as free.", function() Plan.Invalidate() end)
-    checkbox("Use camp stations", "allowCamp",
-        "Also plan recipes that need a Forever camp station (Tanning Rack, Spinning Wheel, Master Forge ...). "
-        .. "Leave off unless you have one.", function() Plan.Invalidate() end)
     -- Specialization of the profession shown (Leatherworking, Engineering); empty for the others
     local spec = CreateFrame("Frame", nil, p)
     spec:SetHeight(1)
@@ -126,8 +123,6 @@ function Page.Build(f)
     if LIB.OpenWelcome then
         local wb = U.Button(p, "Welcome / what's new", 170, 22)
         wb:SetScript("OnClick", function()
-            -- Blizzard's Options window is protected in combat; leave it open then
-            if SettingsPanel and SettingsPanel:IsShown() and not InCombatLockdown() then SettingsPanel:Close() end
             LIB.OpenWelcome("Skillwright")
         end)
         place(wb, 4, 10)

@@ -45,11 +45,12 @@ function Plan.Options(prof, from)
         learnRanks = db.learnRanks,
         vendorPrices = db.vendor,
         market = SW.Prices.Market,
-        allowCamp = s.allowCamp,
+        allowCamp = false,       -- recipes that need a camp station (Tanning Rack, Master Forge ...) stay out
         preferVendor = s.preferVendor,
         owned = Plan.OwnedTools(),
         haveMats = s.useOwned ~= false and Plan.HaveMats(prof) or nil,
         spec = Plan.Spec(prof),
+        faction = UnitFactionGroup and UnitFactionGroup("player") or nil,
     }
 end
 

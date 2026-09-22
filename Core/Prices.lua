@@ -63,6 +63,16 @@ function Pr.HasMarket()
     return Pr.SourceText() ~= nil
 end
 
+-- Whether the guide has real auction prices: "addon" (Auctionator/TSM), "scan" (our own, fresh enough),
+-- "stale" (our scan is older than the "prices go stale" setting) or "none".
+function Pr.Status()
+    if (Auctionator and Auctionator.API) or TSM_API then return "addon" end
+    local t = SW.DB().ahScanned or 0
+    if t <= 0 then return "none" end
+    if SW.Now() - t > (SW.Settings().maxPriceAge or 3) * 86400 then return "stale" end
+    return "scan"
+end
+
 function Pr.Ago(t)
     local d = SW.Now() - t
     if d < 3600 then return ("%dm ago"):format(math.max(1, d / 60)) end
