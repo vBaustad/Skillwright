@@ -59,17 +59,41 @@ function SW.Now() return GetServerTime() end
 
 -- Item names come from the client's item cache, which may not have them yet. Ask for the data and say how
 -- many times we've had to wait, so the UI can show "Loading..." and then give up gracefully.
-local nameWaits = {}
+local nameWaits, nameCache = {}, {}
 function SW.ItemName(id)
     if not id or id == 0 then return nil, 0 end
+    local cached = nameCache[id]
+    if cached then return cached, 0 end
     local name = C_Item.GetItemNameByID(id) or C_Item.GetItemInfo(id)
     if name then
-        nameWaits[id] = nil
+        nameWaits[id], nameCache[id] = nil, name
         return name, 0
     end
     nameWaits[id] = (nameWaits[id] or 0) + 1
     C_Item.RequestLoadItemDataByID(id)
     return nil, nameWaits[id]
+end
+
+-- Recipe items (a "Pattern: ..." on a vendor) to the recipe they teach. Built on first use: it is only
+-- needed when a merchant is open.
+local recipeItems
+function SW.RecipeByItem(id)
+    if not id then return nil end
+    if not recipeItems then
+        recipeItems = {}
+        for prof, data in pairs(SW.Data.professions) do
+            for _, r in ipairs(data[2]) do
+                if (r[11] or 0) > 0 then recipeItems[r[11]] = { prof = prof, spell = r[1] } end
+            end
+        end
+    end
+    return recipeItems[id]
+end
+
+-- Where we have seen a recipe sold, learned by opening merchants. Account-wide, like the trainers.
+function SW.RecipeSource(spell)
+    local db = SW.DB()
+    return db.sources and db.sources[spell]
 end
 
 -- Crafting, buying and training don't work in combat: say so instead of failing silently.
@@ -217,6 +241,8 @@ SlashCmdList.SKILLWRIGHT = function(input)
         SW.Prices.PrintStatus()
     elseif cmd == "debug" and strtrim(input or ""):lower():match("^debug%s+passives") then
         SW.Probe.Run()
+    elseif cmd == "debug" and strtrim(input or ""):lower():match("^debug%s+drift") then
+        SW.Drift.Print(false)
     elseif cmd == "debug" then
         SW.debug = not SW.debug
         SW.msg("debug %s", SW.debug and "on" or "off")

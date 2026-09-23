@@ -155,6 +155,22 @@ local function Resists(out)
     end
 end
 
+local MAX_ROWS = 200      -- rows kept per list in the saved dump
+local MAX_CHARS = 3       -- characters kept in the saved dump
+
+local function Cap(list, n)
+    for i = #list, n + 1, -1 do list[i] = nil end
+end
+
+-- Keep the newest few characters only.
+local function Prune(saved)
+    local names = {}
+    for name in pairs(saved) do names[#names + 1] = name end
+    if #names <= MAX_CHARS then return end
+    table.sort(names, function(a, b) return (saved[a].time or "") > (saved[b].time or "") end)
+    for i = MAX_CHARS + 1, #names do saved[names[i]] = nil end
+end
+
 -- Known spell IDs to confirm with IsPlayerSpell (the camp passives found in the data).
 local CANDIDATES = { 1278062, 1278067, 1278068 }
 
@@ -182,10 +198,16 @@ function Probe.Passives(quiet)
         local ok, err = pcall(step, out)
         if not ok then out.notes[#out.notes + 1] = "error: " .. tostring(err) end
     end
+    -- A research dump, so it is capped on both ends: a few entries per list, a few characters in all.
+    Cap(out.spellbook, MAX_ROWS)
+    Cap(out.auras, MAX_ROWS)
+    Cap(out.notes, MAX_ROWS)
+    for _, p in ipairs(out.professions) do Cap(p.spells, MAX_ROWS) end
     local db = SW.DB()
     db.debug = db.debug or {}
     db.debug.passives = db.debug.passives or {}
     db.debug.passives[out.char] = out
+    Prune(db.debug.passives)
     if quiet then return out end
 
     SW.msg("passives probe (%s, %s %s level %s, build %s):", out.char, tostring(out.race), tostring(out.class),

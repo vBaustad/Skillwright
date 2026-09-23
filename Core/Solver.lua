@@ -14,6 +14,7 @@ local F_SPELL, F_ITEM, F_QTY, F_LEARN, F_YELLOW, F_GREY, F_UPS, F_SRC, F_STATION
 -- slightly late costs little, planning it before it can be learned breaks the route.
 local LEARN_GAP = 10
 local LEARN_GAP_FALLBACK = 30    -- used only where the conservative estimate leaves no recipe at all
+local YIELD_EVERY = 20        -- ranks between breaks when solving in the background
 local SWITCH_PENALTY = 3         -- switching recipe costs as much as ~3 skill points (fewer, longer steps)
 local FAST_GOLD_WEIGHT = 1 / (20 * 10000) -- fast mode: 20g of mats counts as one extra craft (tie-breaker)
 -- "Prefer vendor materials": materials you have to farm or buy at auction count this many times their price,
@@ -274,12 +275,67 @@ function Solver.Solve(prof, opts)
     for _, r in ipairs(data[2]) do
         if usable(r, opts) then
             local cost, vendorOnly, weighted, haveAll = craftCost(r, price, preferVendor)
-            local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted, haveMats = haveAll }
+            -- the skill each recipe needs and gives, worked out once: the rank loop below runs 300 times
+            local learn = Solver.LearnRank(r, opts, false)
+            local learnFB = Solver.LearnRank(r, opts, true)
+            local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted, haveMats = haveAll,
+                        learn = learn, learnFB = learnFB, first = learn < learnFB and learn or learnFB,
+                        yellow = r[F_YELLOW], grey = r[F_GREY], ups = max(1, r[F_UPS]) }
             cands[#cands + 1] = c
             bySpell[r[F_SPELL]] = c
             if r[F_ITEM] > 0 and not makers[r[F_ITEM]] then makers[r[F_ITEM]] = r end
         end
     end
+    -- Recipes that behave the same in the plan - same skill to learn, same yellow/grey, same skill-ups and
+    -- tools - differ only in price, and the dearer one can never win, neither as the next craft nor as the one
+    -- to stay on. Keeping just the cheapest of each group is what makes a full route fast enough for one frame.
+    -- Interchangeable recipes: same skill to learn, same yellow/grey, same skill-ups, tools and station.
+    -- Only one of each group can ever win (the cheapest, or the one the player asked for), but the others
+    -- are kept on it as alternatives, so the guide can offer "or make this instead".
+    do
+        local prefer = opts.prefer or {}
+        local groups, kept = {}, {}
+        for _, c in ipairs(cands) do
+            local r = c.r
+            local tools = r[F_TOOLS]
+            local key = ("%d:%d:%d:%d:%d:%s:%s"):format(c.learn, c.learnFB, c.yellow, c.grey, c.ups,
+                tools and #tools > 0 and table.concat(tools, ",") or "-", r[F_STATION])
+            c.score = fast and (1 + ((preferVendor and not c.vendorOnly) and FAST_VENDOR_PENALTY or 0)
+                + c.weight * FAST_GOLD_WEIGHT) or c.weight
+            local g = groups[key]
+            if not g then
+                g = { members = {} }
+                groups[key] = g
+            end
+            g.members[#g.members + 1] = c
+            local wanted = prefer[r[F_SPELL]]
+            if wanted and not g.chosenByPlayer then
+                g.best, g.chosenByPlayer = c, true
+            elseif not g.chosenByPlayer and (not g.best or c.score < g.best.score) then
+                g.best = c
+            end
+        end
+        for _, g in pairs(groups) do
+            local best = g.best
+            if #g.members > 1 then
+                best.alts = {}
+                for _, c in ipairs(g.members) do
+                    if c ~= best then
+                        best.alts[#best.alts + 1] = { spell = c.r[F_SPELL], item = c.r[F_ITEM], cost = c.cost }
+                    end
+                end
+                table.sort(best.alts, function(a, b) return a.cost < b.cost end)
+                best.chosenByPlayer = g.chosenByPlayer or nil
+            end
+            kept[#kept + 1] = best
+        end
+        cands = kept
+    end
+    -- lowest skill needed first, so the loop can stop where the rest are still out of reach
+    table.sort(cands, function(a, b)
+        if a.first ~= b.first then return a.first < b.first end
+        return a.r[F_SPELL] < b.r[F_SPELL]
+    end)
     local ctx = { owned = opts.owned or {}, makers = makers, opts = opts }
 
     -- can every tool the recipe needs be had by `rank`? (memoised per category and rank)
@@ -301,10 +357,10 @@ function Solver.Solve(prof, opts)
 
     -- per-attempt cost of recipe c at rank `rank`, or nil when it can't give a skill-up there
     local function stepCost(c, rank, fallback)
+        if rank >= c.grey then return nil end                 -- grey: no skill from it
+        if (fallback and c.learnFB or c.learn) > rank then return nil end
         local r = c.r
-        local learn = Solver.LearnRank(r, opts, fallback)
-        if learn > rank then return nil end
-        local p = Solver.Chance(r[F_YELLOW], r[F_GREY], rank)
+        local p = Solver.Chance(c.yellow, c.grey, rank)
         if p <= 0 then return nil end
         if not toolsOK(r, rank) then return nil end
         if fast then
@@ -317,15 +373,29 @@ function Solver.Solve(prof, opts)
     -- f[rank][ci] = cost of reaching `to` from `rank` crafting cands[ci] now
     local f, best, bestStep, fb = {}, {}, {}, {}
     best[to], bestStep[to] = 0, 0
+    -- the rank drops every round, so recipes needing more skill than this can be left out from here on
+    local last = #cands
+    -- opts.yield (set when the plan is solved in the background) is called every so often so a long route
+    -- can be spread over several frames instead of freezing one.
+    local yield, sinceYield = opts.yield, 0
     for rank = to - 1, from, -1 do
+        if yield then
+            sinceYield = sinceYield + 1
+            if sinceYield >= YIELD_EVERY then
+                sinceYield = 0
+                yield()
+            end
+        end
+        while last > 0 and cands[last].first > rank do last = last - 1 end
         local row, b, bs = {}, huge, huge
         local usedFallback = false
         for pass = 1, 2 do
             local fallback = pass == 2
-            for ci, c in ipairs(cands) do
+            for ci = 1, last do
+                local c = cands[ci]
                 local sc = stepCost(c, rank, fallback)
                 if sc then
-                    local nxt = min(rank + max(1, c.r[F_UPS]), to)
+                    local nxt = min(rank + c.ups, to)
                     local tail
                     if nxt >= to then
                         tail = 0
@@ -376,7 +446,8 @@ function Solver.Solve(prof, opts)
                      yellow = r[F_YELLOW], grey = r[F_GREY], source = r[F_SRC], recipeItem = r[F_RITEM],
                      station = r[F_STATION], learn = learn, learnEstimated = est, vendorOnly = c.vendorOnly,
                      haveMats = c.haveMats,
-                     attempts = 0, costEach = c.cost, tools = r[F_TOOLS] }
+                     attempts = 0, costEach = c.cost, tools = r[F_TOOLS],
+                     alts = c.alts, chosenByPlayer = c.chosenByPlayer }
             steps[#steps + 1] = step
         end
         step.attempts = step.attempts + 1 / p

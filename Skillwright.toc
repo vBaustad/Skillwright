@@ -3,7 +3,7 @@
 ## Category: YippYapp
 ## Notes: Profession leveling for WoW: Forever - the cheapest or fastest route to max skill, planned from the game's own recipe data and live prices. Part of YippYapp - addons for WoW: Forever that work even better together.
 ## Author: vebjorn
-## Version: 0.1.0-beta3
+## Version: 0.1.0-beta4
 ## SavedVariables: SkillwrightDB
 ## SavedVariablesPerCharacter: SkillwrightCharDB
 ## IconTexture: Interface\AddOns\Skillwright\Media\icon
@@ -28,6 +28,7 @@ Libs\LibForever-1.0\Settings.lua
 Core\Core.lua
 Data\Recipes.lua
 Data\Items.lua
+Data\TrainerHints.lua
 Core\Solver.lua
 Core\Professions.lua
 Core\Prices.lua
@@ -35,6 +36,7 @@ Core\Trainer.lua
 Core\Plan.lua
 Core\Enchant.lua
 Core\Probe.lua
+Core\Drift.lua
 
 UI\Widgets.lua
 UI\Settings.lua

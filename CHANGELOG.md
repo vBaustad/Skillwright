@@ -1,5 +1,11 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta4
+
+- Settings moved into the YippYapp window, recipe alternatives, a "learn this at a trainer"
+  panel with locations Skillwright learns from your own trainer visits, and the cheapest/fastest
+  choice now states what it costs you.
+
 ## 0.1.0-beta3
 
 - **No crafting profession yet?** Skillwright opens a "Choose a profession" page: what each profession is good for, the gathering profession that goes with it (highlighted if you already have one), and a click to preview its route. Learn one and the planner takes over by itself.

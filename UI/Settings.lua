@@ -81,13 +81,26 @@ function Page.Build(f)
     checkbox("Use materials I already have", "useOwned",
         "Steps you can already make from what's in your bags or bank come first. Valuable (over 1g each) or "
         .. "rare materials are never counted as free.", function() Plan.Invalidate() end)
-    -- Specialization of the profession shown (Leatherworking, Engineering); empty for the others
+    -- Specialization: only Leatherworking and Engineering have one, so the profession it belongs to is
+    -- always named (and picked here when the character has both).
     local spec = CreateFrame("Frame", nil, p)
     spec:SetHeight(1)
     place(spec, 4, 8, true)
     f.specBox = spec
     f.specLabel = U.Text(spec, "GameFontHighlight")
     f.specLabel:SetPoint("TOPLEFT", 0, 0)
+    f.specProfBtn = CreateFrame("Button", nil, spec)
+    f.specProfBtn:SetHeight(20)
+    f.specProfBtn:SetPoint("LEFT", f.specLabel, "RIGHT", 6, 0)
+    f.specProfText = U.Text(f.specProfBtn, "GameFontNormal")
+    f.specProfText:SetPoint("LEFT", 0, 0)
+    f.specProfArrow = f.specProfBtn:CreateTexture(nil, "ARTWORK")
+    f.specProfArrow:SetAtlas("common-dropdown-a-button")
+    f.specProfArrow:SetSize(16, 16)
+    f.specProfArrow:SetPoint("LEFT", f.specProfText, "RIGHT", 2, -1)
+    local hl = f.specProfBtn:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetAtlas("Options_List_Hover")
 
     -- The guide window
     heading("Guide window")
@@ -120,13 +133,7 @@ function Page.Build(f)
     -- YippYapp: the link to the shared page (minimap and launcher buttons), the welcome page, the footer
     local LIB = SW.LIB
     if LIB.LauncherOptions then place(LIB.LauncherOptions(p, "Skillwright"), 4, 18) end
-    if LIB.OpenWelcome then
-        local wb = U.Button(p, "Welcome / what's new", 170, 22)
-        wb:SetScript("OnClick", function()
-            LIB.OpenWelcome("Skillwright")
-        end)
-        place(wb, 4, 10)
-    end
+    -- No welcome button: the YippYapp window this page lives in has its own way there.
     text(GREY .. "|cffffd100/skw|r opens the guide, |cffffd100/skw config|r these settings.\n"
         .. "Part of YippYapp - addons for WoW: Forever that work even better together.|r", nil, 4, 12)
     f.lastWidget = last
@@ -142,12 +149,46 @@ function Page.Refresh(f, prof)
     for _, cb in ipairs(f.checks) do cb:SetChecked(SW.Settings()[cb.key] and true or false) end
     f.mode:Select(SW.Settings().mode)
 
-    prof = prof or SW.DefaultProf()
+    -- Which profession the specialization belongs to: the one the guide last showed when it has one,
+    -- else the character's first. Never guessed silently - the name is always on screen.
+    local owned = {}
+    for _, id in ipairs(SW.Prof.Mine()) do
+        if SW.PROFESSIONS[id] and SW.PROFESSIONS[id].specs then owned[#owned + 1] = id end
+    end
+    local wanted = prof or f.specProf or SW.DefaultProf()
+    local specProf
+    for _, id in ipairs(owned) do
+        if id == wanted then specProf = id end
+    end
+    if not specProf and f.specProf then
+        for _, id in ipairs(owned) do
+            if id == f.specProf then specProf = id end
+        end
+    end
+    specProf = specProf or owned[1]
+    f.specProf = specProf
+    prof = specProf
     local specs = prof and SW.PROFESSIONS[prof] and SW.PROFESSIONS[prof].specs
     if f.spec then f.spec:Hide() end
     if specs then
-        f.specLabel:SetText(("%s specialization"):format(SW.ProfName(prof)))
+        f.specLabel:SetText("Specialization for")
         f.specLabel:Show()
+        f.specProfText:SetText(SW.ProfName(prof))
+        f.specProfBtn:SetWidth(f.specProfText:GetStringWidth() + (#owned > 1 and 22 or 4))
+        f.specProfArrow:SetShown(#owned > 1)
+        f.specProfBtn:SetShown(true)
+        f.specProfBtn:SetScript("OnClick", (#owned > 1) and function(self)
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle("Specialization for")
+                for _, id in ipairs(owned) do
+                    root:CreateRadio(SW.ProfName(id), function() return f.specProf == id end, function()
+                        f.specProf = id
+                        Page.Refresh(f, id)
+                    end)
+                end
+            end)
+        end or nil)
+        f.specProfBtn:SetEnabled(#owned > 1)
         f.specCtl = f.specCtl or {}
         local ctl = f.specCtl[prof]
         if not ctl then
@@ -166,6 +207,7 @@ function Page.Refresh(f, prof)
         f.specBox:SetHeight(44)
     else
         f.specLabel:Hide()
+        f.specProfBtn:Hide()
         f.specBox:SetHeight(1)
     end
     FitHeight(f)

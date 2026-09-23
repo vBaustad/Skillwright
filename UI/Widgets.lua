@@ -153,8 +153,18 @@ function U.ItemQualityColor(id)
     return c and c.hex or "|cffffffff"
 end
 
+-- Spell names don't change once the client knows them, so they are remembered: the route and shopping
+-- lists ask for every row on every refresh.
+local spellNames = {}
 function U.RecipeName(spell)
-    return (C_Spell.GetSpellName and C_Spell.GetSpellName(spell)) or ("recipe " .. spell)
+    local cached = spellNames[spell]
+    if cached then return cached end
+    local name = C_Spell.GetSpellName and C_Spell.GetSpellName(spell)
+    if name then
+        spellNames[spell] = name
+        return name
+    end
+    return "recipe " .. spell
 end
 
 -- Icon of what a recipe makes (the enchant's spell icon for enchants).

@@ -4,21 +4,109 @@ local ADDON, SW = ...
 local Plan = {}
 SW.Plan = Plan
 
-local cache = {}    -- [prof] = route
+local cache = {}    -- [prof][mode] = route: both modes are kept, so the guide can say what the choice costs
+local jobs = {}     -- ["prof:mode"] = { prof, mode, co = coroutine, rank = the rank it was started from }
+
+local function Cached(prof, mode)
+    local byMode = cache[prof]
+    return byMode and byMode[mode or SW.Settings().mode]
+end
+
+local function Keep(prof, mode, route)
+    cache[prof] = cache[prof] or {}
+    cache[prof][mode] = route
+end
+local runner        -- the frame that drives the background solving
+local Stop          -- takes that frame's OnUpdate away again (defined below)
+local SLICE_MS = 6  -- time per frame given to solving: enough to be quick, small enough not to be seen
+local SYNC_SPAN = 20 -- ranks still to go that are quick enough (about 8 ms) to work out on the spot
 
 function Plan.Count(id, withBank)
     return C_Item.GetItemCount(id, withBank) or 0
 end
 
 function Plan.Invalidate(prof)
-    if prof then cache[prof] = nil else wipe(cache) end
+    Plan.ForgetShopping(prof)
+    if prof then
+        cache[prof] = nil
+        for key, job in pairs(jobs) do
+            if job.prof == prof then jobs[key] = nil end
+        end
+    else
+        wipe(cache)
+        wipe(jobs)
+    end
+    if not next(jobs) then Stop() end
     SW.Fire("PLAN_CHANGED", prof)
+end
+
+-- True while a route is still being worked out (the guide says so instead of showing nothing).
+function Plan.Solving(prof, mode)
+    if prof then return jobs[("%d:%s"):format(prof, mode or SW.Settings().mode)] ~= nil end
+    return next(jobs) ~= nil
+end
+
+-- Runs the solving coroutines a few milliseconds per frame. Nothing to solve: the handler goes away again.
+function Stop()
+    if runner then
+        runner:SetScript("OnUpdate", nil)
+        runner:Hide()
+    end
+end
+
+local function Drive()
+    if not next(jobs) then return Stop() end
+    local started = debugprofilestop and debugprofilestop()
+    for key, job in pairs(jobs) do
+        local prof, mode = job.prof, job.mode
+        while true do
+            local ok, res = coroutine.resume(job.co)
+            if not ok then
+                SW.dbg("route for %s failed: %s", SW.ProfName(prof), tostring(res))
+                jobs[key] = nil
+                break
+            end
+            if coroutine.status(job.co) == "dead" then
+                jobs[key] = nil
+                if res then
+                    Keep(prof, mode, res)
+                    if job.t then SW.dbg("solved %s (%s) from %d in %.0f ms", SW.ProfName(prof), mode, job.rank,
+                        debugprofilestop() - job.t) end
+                end
+                SW.Fire("PLAN_CHANGED", prof)
+                break
+            end
+            if not started or debugprofilestop() - started >= SLICE_MS then return end
+        end
+        if not started or debugprofilestop() - started >= SLICE_MS then return end
+    end
+    if not next(jobs) then Stop() end
+end
+
+local function StartJob(prof, rank, mode)
+    mode = mode or SW.Settings().mode
+    local key = ("%d:%s"):format(prof, mode)
+    if jobs[key] then return end
+    local opts = Plan.Options(prof, rank)
+    opts.mode = mode
+    opts.yield = coroutine.yield
+    jobs[key] = {
+        prof = prof, mode = mode, rank = rank,
+        t = debugprofilestop and debugprofilestop(),
+        co = coroutine.create(function() return SW.Solver.Solve(prof, opts) end),
+    }
+    if not runner then runner = CreateFrame("Frame") end
+    runner:SetScript("OnUpdate", Drive)
+    runner:Show()
 end
 
 function SW.SetMode(mode)
     if mode ~= "cheap" and mode ~= "fast" then return end
+    if SW.Settings().mode == mode then return end
     SW.Settings().mode = mode
-    Plan.Invalidate()
+    -- both routes stay cached, so switching back and forth is instant and nothing is re-solved
+    Plan.ForgetShopping()
+    SW.Fire("PLAN_CHANGED")
     SW.msg("route mode: %s", mode == "cheap" and "|cffffd100cheapest|r" or "|cffffd100fastest|r")
 end
 
@@ -50,6 +138,7 @@ function Plan.Options(prof, from)
         owned = Plan.OwnedTools(),
         haveMats = s.useOwned ~= false and Plan.HaveMats(prof) or nil,
         spec = Plan.Spec(prof),
+        prefer = SW.CharProf(prof).prefer,
         faction = UnitFactionGroup and UnitFactionGroup("player") or nil,
     }
 end
@@ -122,18 +211,113 @@ end
 
 -- The route for a profession from the character's current rank. Solved from rank 1 for professions
 -- the character doesn't have (preview). Re-solved when the rank leaves the cached route.
-function Plan.Route(prof)
+function Plan.Route(prof, mode)
+    mode = mode or SW.Settings().mode
     local rank = math.max(1, SW.Prof.Rank(prof))
-    local r = cache[prof]
-    if r and (r.from == rank or (rank >= r.from and rank < r.to)) then return r end
-    if r and rank >= r.to and not r.gapAt and r.to >= SW.MAX_RANK then return r end
-    local t = debugprofilestop and debugprofilestop()
-    r = SW.Solver.Solve(prof, Plan.Options(prof, rank))
-    if r then
-        if t then SW.dbg("solved %s from %d in %.0f ms", SW.ProfName(prof), rank, debugprofilestop() - t) end
-        cache[prof] = r
+    local r = Cached(prof, mode)
+    if r and (r.from == rank or (rank >= r.from and rank < r.to)) then
+        Plan.WantOther(prof, rank, mode)
+        return r
     end
+    if r and rank >= r.to and not r.gapAt and r.to >= SW.MAX_RANK then return r end
+    -- The last stretch is short enough to work out on the spot, so the guide stays instant where it is
+    -- used most. A longer route takes tens of milliseconds - a visible stutter - so that one is solved in
+    -- the background, a few milliseconds per frame, while the guide says it is working.
+    if SW.MAX_RANK - rank <= SYNC_SPAN then return Plan.RouteNow(prof, mode) end
+    StartJob(prof, rank, mode)
+    return nil
+end
+
+-- With the shown route ready, the other mode is worked out in the background too, so the guide can say
+-- what the choice costs instead of asking the player to guess.
+function Plan.WantOther(prof, rank, mode)
+    local other = mode == "fast" and "cheap" or "fast"
+    local r = Cached(prof, other)
+    if r and (r.from == rank or (rank >= r.from and rank < r.to)) then return end
+    StartJob(prof, rank, other)
+end
+
+-- What switching would cost, in one line: nil while the other route is still being worked out.
+-- "cheap" is the route with the lower gold cost, "fast" the one with fewer crafts - which is not always
+-- how they come out, so the wording follows the numbers rather than the names.
+function Plan.TradeOff(prof)
+    local cheap, fast = Plan.Compare(prof)
+    if not (cheap and fast) then return nil end
+    local mode = SW.Settings().mode
+    local here, there = (mode == "fast") and fast or cheap, (mode == "fast") and cheap or fast
+    local crafts, cost = here.crafts - there.crafts, there.cost - here.cost
+    if crafts == 0 and math.abs(cost) < 100 then
+        return "Both routes come out the same from here."
+    end
+    local other = (mode == "fast") and "Cheapest" or "Fastest"
+    local parts = {}
+    if crafts > 0 then
+        parts[#parts + 1] = ("%d fewer crafts"):format(crafts)
+    elseif crafts < 0 then
+        parts[#parts + 1] = ("%d more crafts"):format(-crafts)
+    end
+    if cost > 0 then
+        parts[#parts + 1] = ("%s more"):format(SW.MoneyShort(cost))
+    elseif cost < 0 then
+        parts[#parts + 1] = ("%s less"):format(SW.MoneyShort(-cost))
+    end
+    return ("%s: %s"):format(other, table.concat(parts, ", "))
+end
+
+-- Switching mode shouldn't move the player off the recipe they are part way through: if the other route
+-- also uses it where they stand, that step is the one shown.
+function Plan.StickTo(prof, spell)
+    Plan.sticky = Plan.sticky or {}
+    Plan.sticky[prof] = spell
+end
+
+-- Crafts and cost still to go in each mode, once they are known. Returns cheap, fast (either may be nil).
+function Plan.Compare(prof)
+    local rank = math.max(1, SW.Prof.Rank(prof))
+    local function totals(mode)
+        local r = Cached(prof, mode)
+        -- the same freshness rule the guide uses: a route solved from an older rank describes a different
+        -- journey, and a number that doesn't start where the player stands is worse than no number
+        if not (r and (r.from == rank or (rank >= r.from and rank < r.to))) then return nil end
+        local crafts, cost = 0, 0
+        for _, s in ipairs(r.steps) do
+            if s.to > rank then
+                local n = Plan.CraftsLeft(s, rank)
+                crafts = crafts + n
+                cost = cost + n * (s.costEach or 0)
+            end
+        end
+        return { crafts = crafts, cost = cost, to = r.to }
+    end
+    return totals("cheap"), totals("fast")
+end
+
+-- The route, solved here and now (no waiting). Used by anything that can't come back for the answer.
+function Plan.RouteNow(prof, mode)
+    mode = mode or SW.Settings().mode
+    local rank = math.max(1, SW.Prof.Rank(prof))
+    local r = Cached(prof, mode)
+    if r and (r.from == rank or (rank >= r.from and rank < r.to)) then return r end
+    local opts = Plan.Options(prof, rank)
+    opts.mode = mode
+    r = SW.Solver.Solve(prof, opts)
+    if r then Keep(prof, mode, r) end
     return r
+end
+
+-- Which of several interchangeable recipes the player would rather make. Remembered per character and
+-- profession; nil means "whichever is cheapest".
+function Plan.Prefer(prof, spell)
+    local cp = SW.CharProf(prof)
+    cp.prefer = cp.prefer or {}
+    wipe(cp.prefer)                      -- one choice per group, and groups can't overlap
+    if spell then cp.prefer[spell] = true end
+    Plan.Invalidate(prof)
+end
+
+function Plan.Preferred(prof, spell)
+    local cp = SW.CharProf(prof)
+    return cp.prefer ~= nil and cp.prefer[spell] == true
 end
 
 -- Index of the step the rank falls in (#steps + 1 when past the route).
@@ -165,6 +349,15 @@ function Plan.Current(prof)
     if not route then return nil end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local idx = Plan.StepIndex(route, rank)
+    -- the recipe the player was on before switching mode, when this route uses it here too
+    local stick = Plan.sticky and Plan.sticky[prof]
+    if stick then
+        local found
+        for i, s in ipairs(route.steps) do
+            if s.spell == stick and rank < s.to and rank >= s.from then found = i break end
+        end
+        if found then idx = found else Plan.sticky[prof] = nil end
+    end
     local step = route.steps[idx]
     if not step then return { route = route, done = true, rank = rank } end
     local left = math.max(1, Plan.CraftsLeft(step, rank))
@@ -196,10 +389,29 @@ function Plan.Current(prof)
 end
 
 -- Materials for the rest of the route, grouped by trainer tier. Current step counted from the rank.
+-- The answer only changes with the route, the rank or what's in the bags, so it is kept until then.
+local shopCache = {}
+function Plan.ForgetShopping(prof)
+    if prof then shopCache[prof] = nil else wipe(shopCache) end
+end
+
+-- What you have of each material is read fresh every time, cached list or not.
+local function CountThem(groups)
+    for _, g in ipairs(groups) do
+        for _, e in ipairs(g.order) do
+            e.have = Count(e.id, true)
+            e.short = math.max(0, e.need - e.have)
+        end
+    end
+    return groups
+end
+
 function Plan.Shopping(prof)
     local route = Plan.Route(prof)
     if not route then return {} end
     local rank = math.max(1, SW.Prof.Rank(prof))
+    local cached = shopCache[prof]
+    if cached and cached.route == route and cached.rank == rank then return CountThem(cached.groups) end
     local owned = Plan.OwnedTools()
     local groups, byTier = {}, {}
     for _, s in ipairs(route.steps) do
@@ -238,13 +450,8 @@ function Plan.Shopping(prof)
             for _, m in ipairs(s.mats) do add(m.id, m.per * crafts, m.unit, m.priceSource) end
         end
     end
-    for _, g in ipairs(groups) do
-        for _, e in ipairs(g.order) do
-            e.have = Count(e.id, true)
-            e.short = math.max(0, e.need - e.have)
-        end
-    end
-    return groups
+    shopCache[prof] = { route = route, rank = rank, groups = groups }
+    return CountThem(groups)
 end
 
 -- Totals for the rest of the route: crafts and gold still to spend.

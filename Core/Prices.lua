@@ -4,6 +4,7 @@ local ADDON, SW = ...
 local Pr = {}
 SW.Prices = Pr
 
+local KEEP_PRICES = 30 * 86400    -- how long a scanned price is kept at all
 local SCAN_PERCENTILE = 0.15      -- price of the cheapest 15% of what's listed: ignores lone bargains
 local SCAN_BATCH = 1500           -- replicate rows handled per frame
 
@@ -141,6 +142,12 @@ local function Finish(rows)
             n = n + 1
         end
     end
+    -- Prices older than a month are never used again (the setting caps them at days): drop them so the
+    -- saved table can't grow for ever.
+    local cutoff = now - KEEP_PRICES
+    for id, e in pairs(ah) do
+        if type(e) ~= "table" or not e[2] or e[2] < cutoff then ah[id] = nil end
+    end
     SW.DB().ahScanned = now
     scanning = false
     SW.msg("auction scan done: prices for %d materials.", n)
@@ -192,18 +199,43 @@ end)
 -- ---------------------------------------------------------------------------
 Pr.merchant = {}    -- [itemID] = merchant slot, while a merchant is open
 
+-- Where this merchant is, for the "sold by" line. The player's own position is readable; nothing else is.
+local function Here()
+    local zone = GetRealZoneText and GetRealZoneText() or (GetZoneText and GetZoneText()) or nil
+    local spot = GetSubZoneText and GetSubZoneText() or nil
+    if spot == "" then spot = nil end
+    return zone, spot
+end
+
 local function ScanMerchant()
     wipe(Pr.merchant)
-    local vendor = SW.DB().vendor
+    local db = SW.DB()
+    local vendor = db.vendor
     local n = GetMerchantNumItems and GetMerchantNumItems() or 0
+    local who = UnitName("npc")
+    local zone, spot = Here()
     for i = 1, n do
         local id = GetMerchantItemID and GetMerchantItemID(i)
-        local price, stack, extended
+        local price, stack, extended, available
         local info = C_MerchantFrame.GetItemInfo(i)
-        if info then price, stack, extended = info.price, info.stackCount, info.hasExtendedCost end
+        if info then
+            price, stack, extended = info.price, info.stackCount, info.hasExtendedCost
+            available = info.numAvailable
+        end
         if id and price and price > 0 and not extended then
             Pr.merchant[id] = i
             if SW.Data.items[id] then vendor[id] = price / math.max(1, stack or 1) end
+        end
+        -- A recipe on sale: the client data has no vendor sources at all, so this is worth keeping.
+        -- Quietly: a merchant is opened for other reasons and nobody wants chat about it.
+        local recipe = id and SW.RecipeByItem(id)
+        if recipe and who and who ~= "" then
+            db.sources = db.sources or {}
+            db.sources[recipe.spell] = {
+                kind = "vendor", item = id, who = who, zone = zone, spot = spot,
+                price = price, limited = (available and available >= 0) and available or nil,
+                char = UnitName("player"), seen = SW.Now(),
+            }
         end
     end
     SW.Fire("MERCHANT_CHANGED")

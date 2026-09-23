@@ -8,8 +8,13 @@ local W, H = 400, 560
 local ROW = 26
 local win
 local views = {}          -- [id] = { frame, build, refresh }
+-- The settings live in the YippYapp window (LibForever); the gear in the corner opens them. Without the
+-- lib they stay a tab of our own, so nothing is stranded.
+local HOSTED_SETTINGS = false
 local VIEW_ORDER = { { value = "now", label = "Now" }, { value = "route", label = "Route" },
                      { value = "shop", label = "Shopping" }, { value = "settings", label = "Settings" } }
+
+local AltMenu   -- "or make this instead" (defined below, used by the Now view's widgets)
 
 local function Est(src) return src == "est" end
 
@@ -117,10 +122,26 @@ local function BuildNow(f)
     c.sub:SetPoint("RIGHT", c, "RIGHT", -4, 0)
 
     c.learn = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
+    -- Recipes that are the same for the plan (Rough Sharpening Stone / Rough Weightstone): the player picks
+    c.alts = CreateFrame("Button", nil, c)
+    c.alts:SetHeight(16)
+    c.altsText = U.Text(c.alts, "GameFontHighlightSmall", "LEFT", true)
+    c.altsText:SetPoint("TOPLEFT", 0, 0)
+    c.altsText:SetPoint("RIGHT", c.alts, "RIGHT", 0, 0)
+    c.alts:SetScript("OnClick", function(self) AltMenu(self) end)
+    c.alts:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Same for the plan", 1, 0.82, 0.3)
+        GameTooltip:AddLine("These give the same skill from the same kind of materials. Pick the one you "
+            .. "actually want; Skillwright remembers it for this profession.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    c.alts:SetScript("OnLeave", function() GameTooltip:Hide() end)
     c.warn = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
     c.matsHead = U.Heading(c, "Materials for this step")
     c.mats = {}
     c.info = U.Text(c, "GameFontHighlightSmall", "LEFT", true)
+    c.trade = U.Text(c, "GameFontHighlightSmall", "LEFT", true)   -- what the other mode would cost
 
     c.craftBtn = U.Button(c, "Craft", 110, 24)
     c.craftBtn:SetScript("OnClick", CraftClick)
@@ -179,6 +200,36 @@ local function BuildNow(f)
     c.buyBtn:SetScript("OnClick", function(self) SW.Prices.ConfirmBuy(self.list) end)
     c.buyBtn:SetScript("OnEnter", function(self) SW.Prices.BuyTooltip(self, self.list) end)
     c.buyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- "Go and learn this": the panel that takes over the page when a recipe has to be trained first,
+    -- because that is what actually blocks the route.
+    c.learnBox = CreateFrame("Frame", nil, c)
+    c.learnBox.bg = c.learnBox:CreateTexture(nil, "BACKGROUND")
+    c.learnBox.bg:SetAllPoints()
+    c.learnBox.bg:SetColorTexture(0, 0, 0, 0.35)
+    c.learnBox.edge = c.learnBox:CreateTexture(nil, "BORDER")
+    c.learnBox.edge:SetPoint("TOPLEFT")
+    c.learnBox.edge:SetPoint("BOTTOMLEFT")
+    c.learnBox.edge:SetWidth(3)
+    c.learnBox.edge:SetColorTexture(1, 0.5, 0.25, 0.9)
+    c.learnBox.head = U.Text(c.learnBox, "GameFontNormalLarge", "LEFT", true)
+    c.learnBox.head:SetPoint("TOPLEFT", 10, -8)
+    c.learnBox.head:SetPoint("RIGHT", c.learnBox, "RIGHT", -8, 0)
+    c.learnBox.rows = {}
+    for i = 1, 4 do
+        local r = CreateFrame("Frame", nil, c.learnBox)
+        r:SetHeight(22)
+        r.icon = U.IconButton(r, 20)
+        r.icon:SetPoint("TOPLEFT", 0, 0)
+        r.text = U.Text(r, "GameFontHighlight", "LEFT", true)
+        r.text:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, -2)
+        r.text:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+        r:Hide()
+        c.learnBox.rows[i] = r
+    end
+    c.learnBox.where = U.Text(c.learnBox, "GameFontHighlight", "LEFT", true)
+    c.learnBox.hint = U.Text(c.learnBox, "GameFontHighlightSmall", "LEFT", true)
+    c.learnBox:Hide()
+
     c.trainBtn = U.Button(c, "Train", 120, 24)
     c.trainBtn:SetScript("OnClick", function(self) SW.Trainer.Train(self.list or {}) end)
 
@@ -236,6 +287,34 @@ local function HidePool(pool, from)
     for i = from, #pool do pool[i]:Hide() end
 end
 
+-- The "or make this instead" menu: every recipe that is interchangeable here, with what it costs, plus
+-- "whichever is cheapest" to forget the choice.
+AltMenu = function(owner)
+    local prof = win.prof
+    local cur = Plan.Current(prof)
+    local step = cur and cur.step
+    if not (step and step.alts) then return end
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(owner, function(_, root)
+        root:CreateTitle("Make instead")
+        root:CreateRadio("Whichever is cheapest", function() return not Plan.Preferred(prof, step.spell)
+            and not step.chosenByPlayer end, function() Plan.Prefer(prof, nil) end)
+        local all = { { spell = step.spell, cost = step.costEach } }
+        for _, a in ipairs(step.alts) do all[#all + 1] = a end
+        for _, a in ipairs(all) do
+            local extra = a.cost - step.costEach
+            local label = U.RecipeName(a.spell)
+            if extra > 0 then
+                label = label .. ("  |cff8a8a8a+%s each|r"):format(SW.MoneyShort(extra))
+            elseif extra < 0 then
+                label = label .. ("  |cff40bf40%s less each|r"):format(SW.MoneyShort(-extra))
+            end
+            root:CreateRadio(label, function() return Plan.Preferred(prof, a.spell) end,
+                function() Plan.Prefer(prof, a.spell) end)
+        end
+    end)
+end
+
 local function StepTooltip(step)
     return function(tt)
         tt:AddLine(" ")
@@ -289,7 +368,7 @@ local function RefreshNow(f)
 
     local cp = SW.CharProf(prof)
     local have = cp.has
-    for _, w in ipairs({ c.learn, c.warn, c.matsHead, c.info, c.craftBtn, c.buyBtn, c.trainBtn, c.nextHead, c.gapHead, c.gapText, c.total,
+    for _, w in ipairs({ c.learn, c.alts, c.learnBox, c.trade, c.warn, c.matsHead, c.info, c.craftBtn, c.buyBtn, c.trainBtn, c.nextHead, c.gapHead, c.gapText, c.total,
                          c.targetLabel, c.targetSlot, c.targetText, c.autoCB }) do
         w:Hide()
         if w.line then w.line:Hide() end
@@ -298,8 +377,9 @@ local function RefreshNow(f)
 
     if not cur then
         c.icon:Hide()
-        c.title:SetText("No data for this profession")
-        c.sub:SetText("")
+        local solving = Plan.Solving(prof)
+        c.title:SetText(solving and "Working out your route..." or "No data for this profession")
+        c.sub:SetText(solving and "|cff8a8a8aA moment - this only happens when the plan changes.|r" or "")
         c:SetHeight(60)
         return
     end
@@ -355,8 +435,105 @@ local function RefreshNow(f)
                     subject.learn or 1, subject.learnEstimated and ", estimated" or "")
             end
         end
-        c.learn:SetText(learn)
-        place(c.learn, 4, 6)
+        -- Not learned yet: the whole point of the page is "go and learn it", so say it loudly.
+        local needsTraining = have and not cur.known and not (tool and tool.buy)
+        if needsTraining then
+            local box = c.learnBox
+            local due = Plan.TrainingDue(prof)
+            box.head:SetText(due and ("Train |cffffd100%s %s|r first"):format(due.name, SW.ProfName(prof))
+                or "Learn this at a trainer")
+            local by = -8 - box.head:GetStringHeight() - 6
+
+            -- this recipe, then the next few the route needs and the character doesn't know
+            local list = { { spell = subject.spell, item = subject.item, learn = subject.learn,
+                             est = subject.learnEstimated } }
+            if route then
+                for i = cur.idx + 1, #route.steps do
+                    local st = route.steps[i]
+                    if not (cp.known and cp.known[st.spell]) and st.spell ~= subject.spell then
+                        list[#list + 1] = { spell = st.spell, item = st.item, learn = st.learn, est = st.learnEstimated }
+                        if #list >= #box.rows then break end
+                    end
+                end
+            end
+            for i, r in ipairs(box.rows) do
+                local e = list[i]
+                if e then
+                    r.icon:Set(e.item, e.spell, nil)
+                    local svc = SW.Trainer.services[e.spell]
+                    local cost = SW.DB().trainerCost and SW.DB().trainerCost[e.spell]
+                    local src = SW.RecipeSource(e.spell)
+                    if src and src.kind == "vendor" then cost = cost or src.price end
+                    r.text:SetText(("%s  |cff8a8a8a(skill %d%s)|r%s%s"):format(U.RecipeName(e.spell), e.learn or 1,
+                        e.est and ", estimated" or "", cost and ("  |cff8a8a8a" .. SW.MoneyShort(cost) .. "|r") or "",
+                        (svc and svc.type == "available") and "  |cff40bf40this trainer has it|r" or ""))
+                    r:ClearAllPoints()
+                    r:SetPoint("TOPLEFT", box, "TOPLEFT", 10, by)
+                    r:SetPoint("RIGHT", box, "RIGHT", -8, 0)
+                    r:Show()
+                    by = by - 22
+                else
+                    r:Hide()
+                end
+            end
+
+            -- where: what we have seen ourselves first, Classic knowledge last, nothing invented
+            -- A recipe we have seen on sale beats everything: it names the shop and the town.
+            local sold = SW.RecipeSource(subject.spell)
+            local where, seen = SW.Trainer.WhereIs(prof, due and due.name or "Expert")
+            if sold and sold.kind == "vendor" then
+                local place = sold.spot and sold.zone and ("%s, %s"):format(sold.zone, sold.spot) or sold.zone or "?"
+                box.where:SetText(("|cffffd100Sold by:|r %s - %s%s"):format(sold.who, place,
+                    sold.limited and ("  |cffff8040limited stock (%d)|r"):format(sold.limited) or ""))
+                where, seen = nil, true
+            elseif SW.Trainer.prof == prof then
+                box.where:SetText("|cff40bf40You are at the right trainer.|r")
+            elseif where and seen then
+                box.where:SetText(("|cffffd100Where:|r %s"):format(where))
+            else
+                box.where:SetText("|cffffd100Where:|r |cff8a8a8ayou haven't met a "
+                    .. SW.ProfName(prof) .. " trainer yet - ask a guard in a capital city.|r")
+            end
+            box.where:ClearAllPoints()
+            box.where:SetPoint("TOPLEFT", box, "TOPLEFT", 10, by - 6)
+            box.where:SetPoint("RIGHT", box, "RIGHT", -8, 0)
+            by = by - 6 - box.where:GetStringHeight()
+
+            if where and not seen then
+                box.hint:SetText("|cff8a8a8a" .. where .. "|r")
+                box.hint:ClearAllPoints()
+                box.hint:SetPoint("TOPLEFT", box, "TOPLEFT", 10, by - 4)
+                box.hint:SetPoint("RIGHT", box, "RIGHT", -8, 0)
+                box.hint:Show()
+                by = by - 4 - box.hint:GetStringHeight()
+            else
+                box.hint:Hide()
+            end
+            box:SetHeight(math.max(60, -by + 10))
+            place(box, 4, 8)
+            box:SetPoint("RIGHT", c, "RIGHT", -4, 0)
+            box:Show()
+        else
+            c.learn:SetText(learn)
+            place(c.learn, 4, 6)
+        end
+
+        -- Interchangeable recipes: name the next-cheapest one and let the player choose
+        if s.alts and #s.alts > 0 then
+            local a = s.alts[1]
+            local extra = a.cost - s.costEach
+            local tail = extra > 0 and (", %s more each"):format(SW.MoneyShort(extra))
+                or (extra < 0 and (", %s less each"):format(SW.MoneyShort(-extra)) or ", same cost")
+            local more = #s.alts > 1 and (" |cff8a8a8a(+%d more)|r"):format(#s.alts - 1) or ""
+            c.altsText:SetText(("|cff8a8a8aor|r |cffffd100%s|r |cff8a8a8a- same skill-ups%s|r%s%s")
+                :format(U.RecipeName(a.spell), tail, more,
+                    s.chosenByPlayer and "  |cff40bf40(your choice)|r" or ""))
+            c.alts:Show()
+            place(c.alts, 4, 2)
+            c.alts:SetHeight(math.max(14, c.altsText:GetStringHeight()))
+        else
+            c.alts:Hide()
+        end
 
         local due = have and Plan.TrainingDue(prof)
         if due then
@@ -517,6 +694,17 @@ local function RefreshNow(f)
             crafts, SW.MoneyShort(cost), math.max(1, cur.rank), route.to))
         place(c.total, 4, 14)
     end
+
+    -- What the other mode would cost, so the choice is a decision and not a coin flip.
+    local trade = Plan.TradeOff(prof)
+    if trade then
+        c.trade:SetText(("|cff8a8a8aYou are on|r |cffffd100%s|r|cff8a8a8a.|r %s"):format(
+            SW.Settings().mode == "fast" and "Fastest" or "Cheapest", trade))
+        place(c.trade, 4, 4)
+    elseif Plan.Solving(prof, SW.Settings().mode == "fast" and "cheap" or "fast") then
+        c.trade:SetText("|cff8a8a8aWorking out what the other route would cost...|r")
+        place(c.trade, 4, 4)
+    end
     c:SetHeight(-y + 10)
 end
 
@@ -556,7 +744,10 @@ local function RefreshRoute(f)
     local c = f.c
     c:SetWidth(f.sf:GetWidth())
     HidePool(f.rows, 1)
-    if not route then f.note:SetText("") return end
+    if not route then
+        f.note:SetText(Plan.Solving(prof) and "|cff8a8a8aWorking out your route...|r" or "")
+        return
+    end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local y, n = -2, 0
     local owned = Plan.OwnedTools()
@@ -630,6 +821,7 @@ local function BuildShop(f)
     f.hint:SetPoint("TOPLEFT", 2, -6)
     f.hint:SetPoint("RIGHT", -4, 0)
     f.total = U.Text(sf.child, "GameFontHighlightSmall", "LEFT", true)
+    f.trade = U.Text(sf.child, "GameFontHighlightSmall", "LEFT", true)   -- what the other mode would cost
 end
 
 local function RefreshShop(f)
@@ -686,6 +878,18 @@ local function RefreshShop(f)
         f.buy:Hide()
         f.hint:SetText("|cff8a8a8aEverything still needed for the rest of the route.|r")
         f.hint:Show()
+    end
+    local trade = Plan.TradeOff(prof)
+    if trade then
+        f.trade:SetText(("|cff8a8a8aYou are on|r |cffffd100%s|r|cff8a8a8a.|r %s"):format(
+            SW.Settings().mode == "fast" and "Fastest" or "Cheapest", trade))
+        f.trade:ClearAllPoints()
+        f.trade:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y - 8)
+        f.trade:SetWidth(c:GetWidth() - 10)
+        f.trade:Show()
+        y = y - f.trade:GetStringHeight() - 6
+    else
+        f.trade:Hide()
     end
     f.total:SetText(("Total: %s%s"):format(Cost(total, est),
         est and ("\n|cff8a8a8a" .. EstNote() .. "|r") or ""))
@@ -757,7 +961,8 @@ local function RefreshMini()
         m.icon:Set(nil, nil)
         m.icon.tex:SetTexture(SW.ProfIcon(prof))
         m.title:SetText(SW.ProfName(prof))
-        m.sub:SetText(cur and cur.route and cur.route.gapAt and ("No trainer recipe past %d"):format(cur.route.gapAt) or "Nothing to do")
+        m.sub:SetText(cur and cur.route and cur.route.gapAt and ("No trainer recipe past %d"):format(cur.route.gapAt)
+            or (Plan.Solving(prof) and "Working out your route..." or "Nothing to do"))
         h = 70
     else
         local s, tool = cur.step, cur.tool
@@ -904,6 +1109,9 @@ local function UpdatePriceNote()
                     or "Open the auction house and press |cffffd100Scan prices|r (or install Auctionator or TSM).")
         end
     end
+    -- Nothing to do when it already says this: every refresh would otherwise re-measure and re-anchor.
+    if text == note.shownText then return end
+    note.shownText = text
     win.body:ClearAllPoints()
     win.body:SetPoint("BOTTOMRIGHT", -12, 40)
     if text then
@@ -953,6 +1161,11 @@ function SW.RefreshWindow()
 end
 
 local function SelectView(id)
+    -- the lib hosts the settings: the tab is gone, so asking for it opens the YippYapp window
+    if id == "settings" and HOSTED_SETTINGS then
+        SW.LIB.OpenAddonSettings("Skillwright")
+        id = win.view or "now"
+    end
     win.view = id
     for vid, v in pairs(views) do
         if vid == id then
@@ -1090,10 +1303,23 @@ local function Build()
     win.mode = U.Segmented(win, {
         { value = "cheap", label = "Cheapest", tooltip = "The least gold per skill point, from market prices." },
         { value = "fast", label = "Fastest", tooltip = "The fewest crafts per skill point (orange and yellow recipes first)." },
-    }, 136, function(v) SW.SetMode(v) end)
+    }, 136, function(v)
+        -- stay on the recipe being crafted if the other route uses it here as well
+        local cur = Plan.Current(win.prof)
+        Plan.StickTo(win.prof, cur and cur.step and cur.step.spell or nil)
+        SW.SetMode(v)
+    end)
     win.mode:SetPoint("TOPRIGHT", -18, -31)
 
-    win.tabs = U.Tabs(win, VIEW_ORDER, SelectView)
+    HOSTED_SETTINGS = SW.LIB.OpenAddonSettings ~= nil
+    local tabItems = VIEW_ORDER
+    if HOSTED_SETTINGS then
+        tabItems = {}
+        for _, item in ipairs(VIEW_ORDER) do
+            if item.value ~= "settings" then tabItems[#tabItems + 1] = item end
+        end
+    end
+    win.tabs = U.Tabs(win, tabItems, SelectView)
     win.tabs:SetPoint("TOPLEFT", 16, -58)
     local divider = win:CreateTexture(nil, "ARTWORK")
     divider:SetAtlas("Options_HorizontalDivider")
@@ -1143,9 +1369,29 @@ local function Build()
     statusHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
     win.statusHit = statusHit
 
+    -- Settings: the YippYapp window when the lib hosts them, else our own tab
+    win.gear = CreateFrame("Button", nil, win)
+    win.gear:SetSize(18, 18)
+    local gearTex = win.gear:CreateTexture(nil, "ARTWORK")
+    gearTex:SetAllPoints()
+    gearTex:SetTexture("Interface\\Buttons\\UI-OptionsButton")
+    local gearHL = win.gear:CreateTexture(nil, "HIGHLIGHT")
+    gearHL:SetAllPoints()
+    gearHL:SetColorTexture(1, 1, 1, 0.2)
+    win.gear:SetScript("OnClick", function() SW.OpenSettings() end)
+    win.gear:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Settings", 1, 0.82, 0.3)
+        GameTooltip:AddLine("Route, guide window and enchanting options.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    win.gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    win.gear:SetShown(HOSTED_SETTINGS)
+
     -- Full / minimal switch, left of the close button
     win.sizeBtn = U.Button(win, "-", 22, 18)
     win.sizeBtn:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    win.gear:SetPoint("RIGHT", win.sizeBtn, "LEFT", -4, 0)
     win.sizeBtn:SetScript("OnClick", function() SW.SetMinimal(not SW.Settings().minimal) end)
     win.sizeBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -1157,6 +1403,7 @@ local function Build()
     win.sizeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- Everything the minimal window hides
     win.fullOnly = { pb, win.mode, divider, win.body, win.scan, win.status, win.statusHit, win.priceNote }
+    if HOSTED_SETTINGS then win.fullOnly[#win.fullOnly + 1] = win.gear end
     for _, b in ipairs(win.tabs.buttons) do win.fullOnly[#win.fullOnly + 1] = b end
 
     views.now = { build = BuildNow, refresh = RefreshNow }
