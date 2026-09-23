@@ -1,5 +1,9 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta5
+
+- Same as beta4; CurseForge did not build that tag.
+
 ## 0.1.0-beta4
 
 - Settings moved into the YippYapp window, recipe alternatives, a "learn this at a trainer"
