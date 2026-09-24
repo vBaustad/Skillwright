@@ -28,6 +28,16 @@ function T.Run()
     local profs = SW.Prof.Mine()
     if #profs == 0 then profs = { SW.Prof.All()[1] } end
 
+    -- Planning a profession from scratch takes a moment, and a silent pause reads as a freeze. Say so,
+    -- but only when there is actually a route to work out: with everything cached this is instant.
+    local toSolve = 0
+    for _, prof in ipairs(profs) do
+        if not SW.Plan.RouteIfReady(prof) then toSolve = toSolve + 1 end
+    end
+    if toSolve > 0 then
+        SW.msg("self test: planning %d profession%s, this takes a moment...", toSolve, toSolve == 1 and "" or "s")
+    end
+
     Check(results, "professions and ranks", function()
         SW.Prof.ScanRanks()
         SW.Prof.All()

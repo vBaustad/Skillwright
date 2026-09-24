@@ -1,5 +1,9 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta8
+
+- Updated shared YippYapp library.
+
 ## 0.1.0-beta7
 
 - Buying from a merchant works again. The confirmation never appeared: Skillwright asked the game to

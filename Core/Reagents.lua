@@ -78,10 +78,13 @@ function R.Keep(itemID)
     return ((known[itemID] or "profession") .. " reagent"), tier
 end
 
--- The plan, the recipes and the ranks all change what matters; so does learning a new profession.
-for _, ev in ipairs({ "PLAN_CHANGED", "RECIPES_CHANGED", "RANKS_CHANGED", "COLORS_CHANGED" }) do
-    SW.Listen(ev, R.Forget)
+-- What the ROUTE needs changes constantly while levelling - every skill-up moves it - but which recipes
+-- the character knows only changes when they learn one. So a skill-up drops the small route table and
+-- leaves the bigger known-materials table alone.
+for _, ev in ipairs({ "PLAN_CHANGED", "RANKS_CHANGED", "COLORS_CHANGED" }) do
+    SW.Listen(ev, function() needed, tools = nil, nil end)
 end
+SW.Listen("RECIPES_CHANGED", R.Forget)
 
 SW.Listen("LOGIN", function()
     local LIB = SW.LIB
