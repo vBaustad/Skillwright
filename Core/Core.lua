@@ -103,8 +103,26 @@ function SW.CombatBlocked(action)
     return true
 end
 
+-- Money with the coin icons. GetCoinTextureString is NOT a global in Forever - it lives in
+-- C_CurrencyInfo - and calling the bare global broke the vendor buy confirmation (found by the self test
+-- the day it shipped). Resolve it once, call it through pcall, and write plain text if neither exists.
+local CoinText = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
 function SW.Money(copper)
-    return GetCoinTextureString(math.floor((copper or 0) + 0.5))
+    copper = math.floor((copper or 0) + 0.5)
+    if CoinText then
+        local ok, text = pcall(CoinText, copper)
+        if ok and text then return text end
+    end
+    return SW.MoneyPlain(copper)
+end
+
+-- The same amount in plain words, for when the client can't draw the coins.
+function SW.MoneyPlain(copper)
+    copper = math.floor((copper or 0) + 0.5)
+    local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+    if g > 0 then return ("%dg %ds %dc"):format(g, s, c) end
+    if s > 0 then return ("%ds %dc"):format(s, c) end
+    return ("%dc"):format(c)
 end
 
 -- Short money text for tight rows: "12g", "4s 20c", "35c".

@@ -1,5 +1,11 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta7
+
+- Buying from a merchant works again. The confirmation never appeared: Skillwright asked the game to
+  format the price with a function Forever doesn't have, so the button errored instead of opening the
+  popup. Every price shown in the guide was always fine - only the buy confirmation used it.
+
 ## 0.1.0-beta6
 
 - Updated shared YippYapp library.
