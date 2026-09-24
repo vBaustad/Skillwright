@@ -67,15 +67,49 @@ function T.WhereIs(prof, tier)
 end
 
 local function LinkItem(i)
-    local link = GetTrainerServiceItemLink(i)
+    local link = GetTrainerServiceItemLink and GetTrainerServiceItemLink(i)
     return link and tonumber(link:match("item:(%d+)"))
+end
+
+-- GetTrainerServiceInfo's returns moved in the current Forever trainer UI.
+--   now:    name, serviceType, texture, reqLevel
+--   before: name, subText, serviceType, texture, reqLevel
+-- serviceType is "available" / "unavailable" / "used" / "header". Reading a fixed
+-- slot made every row look like a texture, so nothing counted as trainable.
+local KINDS = { available = true, unavailable = true, used = true, header = true }
+local function ServiceInfo(i)
+    if not GetTrainerServiceInfo then return nil, nil end
+    local name, a, b = GetTrainerServiceInfo(i)
+    if KINDS[a] then return name, a end
+    if KINDS[b] then return name, b end
+    return name, nil
 end
 
 -- The trainer window hides services by default ("available" only), and the hidden ones are exactly the
 -- interesting ones: a recipe the character can't train yet still states the skill it needs. So every
--- filter is turned on for the read and the player's own filters are put back straight after.
+-- filter is turned on for one read and the player's own filters are put back straight after.
+--
+-- That read used to rescan on the TRAINER_UPDATE it had just caused, which turned the filters on and
+-- off again. The current trainer frame rebuilds every row (Hide + Show) on each of those updates, so
+-- the whole window strobed for as long as it stayed open. Our own updates are ignored, and the frame
+-- redraw is held back until the filters are already back where the player left them.
 local FILTERS = { "available", "unavailable", "used" }
-local saved, restoring
+local saved, restoring, quiet, suppressVisual
+local generation = 0
+local fullDone = false
+local updateWrappedFor
+
+local function HookTrainerUpdate()
+    if type(ClassTrainerFrame_Update) ~= "function" then return end
+    if ClassTrainerFrame_Update == updateWrappedFor then return end
+    local orig = ClassTrainerFrame_Update
+    local function wrapped(...)
+        if suppressVisual then return end
+        return orig(...)
+    end
+    updateWrappedFor = wrapped
+    ClassTrainerFrame_Update = wrapped
+end
 
 local function OpenAllFilters()
     if not (GetTrainerServiceTypeFilter and SetTrainerServiceTypeFilter) then return false end
@@ -85,7 +119,7 @@ local function OpenAllFilters()
     local changed = false
     for _, f in ipairs(FILTERS) do
         local on = GetTrainerServiceTypeFilter(f)
-        if first then saved[f] = on end
+        if first then saved[f] = not not on end
         if not on then
             changed = true
             SetTrainerServiceTypeFilter(f, true)
@@ -105,107 +139,181 @@ local function RestoreFilters()
     restoring = false
 end
 
-T.services = {}     -- [spell] = { index, type } for the open trainer
+-- Hold the redraw across the filter changes and the update event they post.
+local function EndQuiet()
+    local gen = generation
+    -- Long enough for the filter's TRAINER_UPDATE to be delivered and dropped.
+    C_Timer.After(0.15, function()
+        if gen ~= generation then return end
+        suppressVisual = false
+        quiet = false
+    end)
+end
+
+T.services = {}     -- [spell] = { index, type, spell } for the open trainer
 T.prof = nil        -- profession of the open trainer
+
+local function SpellFor(prof, i, name)
+    local spell
+    local id = LinkItem(i)
+    if prof and id and byItem[id] then
+        for _, hit in ipairs(byItem[id]) do
+            if hit[1] == prof then spell = hit[2] break end
+        end
+    end
+    if not spell and not id and prof and name and byName[prof] then spell = byName[prof][name] end
+    return spell
+end
 
 -- Match every service to a recipe. Recipe names aren't unique (two "Faction Banner"s, two "Dark Leather
 -- Boots"), so the item a service makes decides first - within the trainer's own profession - and the
 -- name is only used for services that make no item.
-local function Scan()
-    if restoring then return end
-    wipe(T.services)
-    T.prof = nil
+-- recordFacts: write the skill each recipe needs (only useful while hidden rows are visible).
+-- recordServices: publish the rows the player can click. Do this on the filtered list, after the
+-- player's own filters are back, or the indices point at the wrong service.
+local function Ingest(recordFacts, recordServices)
     Index()
-    -- everything the trainer has, including what this character can't train yet
-    if OpenAllFilters() then
-        -- the list is rebuilt for the new filters: read on the next update instead
-        C_Timer.After(0.05, function() Scan() end)
-        return
-    end
-    local db = SW.DB()
-    local n = GetNumTrainerServices() or 0
+    local n = GetNumTrainerServices and GetNumTrainerServices() or 0
+    if recordServices then wipe(T.services) end
 
-    -- 1. which profession is this trainer for? The one most of its item links belong to.
     local profCount = {}
     for i = 1, n do
-        local _, _, kind = GetTrainerServiceInfo(i)
+        local _, kind = ServiceInfo(i)
         local id = kind ~= "header" and LinkItem(i)
         for _, hit in ipairs(id and byItem[id] or {}) do profCount[hit[1]] = (profCount[hit[1]] or 0) + 1 end
     end
-    local prof, bestN = nil, 0
-    for p, c in pairs(profCount) do if c > bestN then prof, bestN = p, c end end
-    if not prof then
-        -- an enchanting trainer's services make no items: fall back to names
-        local nameCount = {}
-        for i = 1, n do
-            local name, _, kind = GetTrainerServiceInfo(i)
-            if name and kind ~= "header" then
-                for p, names in pairs(byName) do
-                    if names[name] then nameCount[p] = (nameCount[p] or 0) + 1 end
+    local prof, bestN = T.prof, 0
+    if recordFacts or not prof then
+        prof, bestN = nil, 0
+        for p, c in pairs(profCount) do if c > bestN then prof, bestN = p, c end end
+        if not prof then
+            local nameCount = {}
+            for i = 1, n do
+                local name, kind = ServiceInfo(i)
+                if name and kind ~= "header" then
+                    for p, names in pairs(byName) do
+                        if names[name] then nameCount[p] = (nameCount[p] or 0) + 1 end
+                    end
                 end
             end
+            for p, c in pairs(nameCount) do if c > bestN then prof, bestN = p, c end end
         end
-        for p, c in pairs(nameCount) do if c > bestN then prof, bestN = p, c end end
+        if prof then
+            if T.prof ~= prof then T.Remember(prof) end
+            T.prof = prof
+        end
     end
-    T.prof = prof
-    T.Remember(prof)
 
-    -- 2. each service -> its recipe in that profession
     local learned = 0
+    local db = SW.DB()
     for i = 1, (prof and n or 0) do
-        local name, _, kind = GetTrainerServiceInfo(i)
+        local name, kind = ServiceInfo(i)
         if name and kind ~= "header" then
-            local spell
-            local id = LinkItem(i)
-            for _, hit in ipairs(id and byItem[id] or {}) do
-                if hit[1] == prof then spell = hit[2] break end
-            end
-            if not spell and not id then spell = byName[prof][name] end
+            local spell = SpellFor(prof, i, name)
             if spell then
-                T.services[spell] = { index = i, type = kind, prof = prof }
-                db.trainerSeen[spell] = true
-                local _, rank = GetTrainerServiceSkillReq(i)
-                local cost = GetTrainerServiceCost and GetTrainerServiceCost(i)
-                if rank and rank > 0 and db.learnRanks[spell] ~= rank then
-                    -- How far our estimate was from the game's own number: a measure of how much Forever
-                    -- moved away from what the recipe data implies.
-                    local row = rowOf[spell]
-                    if row and (row[4] or 0) == 0 then
-                        local guess = math.max(1, (row[5] or 1) - 10)
-                        local d = db.drift or { n = 0, sum = 0, worst = 0 }
-                        d.n, d.sum = d.n + 1, d.sum + math.abs(rank - guess)
-                        if math.abs(rank - guess) > math.abs(d.worst) then
-                            d.worst, d.worstSpell = rank - guess, spell
+                if recordServices then
+                    T.services[spell] = { index = i, type = kind, prof = prof, spell = spell }
+                end
+                if recordFacts then
+                    db.trainerSeen[spell] = true
+                    local _, rank = GetTrainerServiceSkillReq(i)
+                    rank = tonumber(rank)
+                    local cost = GetTrainerServiceCost and tonumber(GetTrainerServiceCost(i))
+                    if rank and rank > 0 and db.learnRanks[spell] ~= rank then
+                        -- How far our estimate was from the game's own number: a measure of how much Forever
+                        -- moved away from what the recipe data implies.
+                        local row = rowOf[spell]
+                        if row and (row[4] or 0) == 0 then
+                            local guess = math.max(1, (row[5] or 1) - 10)
+                            local d = db.drift or { n = 0, sum = 0, worst = 0 }
+                            d.n, d.sum = d.n + 1, d.sum + math.abs(rank - guess)
+                            if math.abs(rank - guess) > math.abs(d.worst) then
+                                d.worst, d.worstSpell = rank - guess, spell
+                            end
+                            db.drift = d
                         end
-                        db.drift = d
+                        db.learnRanks[spell] = rank
+                        learned = learned + 1
                     end
-                    db.learnRanks[spell] = rank
-                    learned = learned + 1
-                end
-                if cost and cost > 0 then
-                    db.trainerCost = db.trainerCost or {}
-                    db.trainerCost[spell] = cost
-                end
-                -- Abilities it asks for beyond the profession itself = a specialization.
-                local cp = SW.CharProf(prof)
-                for j = 1, GetTrainerServiceNumAbilityReq(i) or 0 do
-                    local ability, has = GetTrainerServiceAbilityReq(i, j)
-                    if ability and ability ~= SW.ProfName(prof) then
-                        db.specReq[spell] = ability
-                        if has then cp.specName = ability end
+                    if cost and cost > 0 then
+                        db.trainerCost = db.trainerCost or {}
+                        db.trainerCost[spell] = cost
+                    end
+                    local cp = SW.CharProf(prof)
+                    for j = 1, (GetTrainerServiceNumAbilityReq and GetTrainerServiceNumAbilityReq(i) or 0) do
+                        local ability, has = GetTrainerServiceAbilityReq(i, j)
+                        if ability and ability ~= SW.ProfName(prof) then
+                            db.specReq[spell] = ability
+                            if has then cp.specName = ability end
+                        end
                     end
                 end
             end
         end
     end
-    RestoreFilters()
+    return learned, n
+end
+
+local function Finish(learned)
     if learned > 0 then
-        local d = db.drift
+        local d = SW.DB().drift
         SW.dbg("trainer: learned the required skill of %d recipes%s", learned,
             d and d.n > 0 and (" (estimate off by %.1f on average over %d, worst %+d)"):format(d.sum / d.n, d.n, d.worst) or "")
         SW.Fire("TRAINER_FACTS")
     end
     SW.Fire("TRAINER_CHANGED")
+end
+
+-- One full read per open window: every filter on, record what the hidden rows need, filters back,
+-- then the indices the Train button can actually buy. Retries if the list is still empty.
+local function FullRead(attempt)
+    local gen = generation
+    quiet = true
+    suppressVisual = true
+    HookTrainerUpdate()
+    local learned, n = 0, 0
+    local ok, err = pcall(function()
+        OpenAllFilters()
+        learned, n = Ingest(true, false)
+        RestoreFilters()
+        if n > 0 then Ingest(false, true) end
+    end)
+    if not ok then
+        pcall(RestoreFilters)
+        SW.dbg("trainer: %s", tostring(err))
+        EndQuiet()
+        return
+    end
+    if n == 0 and attempt < 4 then
+        pcall(RestoreFilters)
+        -- Stay quiet until the retry. EndQuiet here would let TRAINER_UPDATE start a second read.
+        C_Timer.After(0.25, function()
+            if gen ~= generation or fullDone then
+                if gen == generation then
+                    suppressVisual = false
+                    quiet = false
+                end
+                return
+            end
+            FullRead(attempt + 1)
+        end)
+        return
+    end
+    fullDone = n > 0
+    EndQuiet()
+    Finish(learned)
+end
+
+local function Scan()
+    if quiet or restoring then return end
+    if not fullDone then
+        FullRead(1)
+        return
+    end
+    -- A later update (a recipe just learned, the player changed a filter): refresh the visible rows only.
+    local ok, err = pcall(function() Ingest(false, true) end)
+    if not ok then SW.dbg("trainer: %s", tostring(err)) return end
+    Finish(0)
 end
 
 -- Services at the open trainer that the current route uses and can be learned now.
@@ -225,15 +333,56 @@ end
 
 function T.Train(list)
     if SW.CombatBlocked("train") then return end
-    -- Highest index first: learning a service can shift the ones after it.
-    table.sort(list, function(a, b) return a.index > b.index end)
-    for _, svc in ipairs(list) do BuyTrainerService(svc.index) end
+    -- Indices belong to the list on screen right now. Learning a row, or a filter, shifts the rest,
+    -- so resolve each recipe again and buy from the bottom.
+    Index()
+    local want = {}
+    for _, svc in ipairs(list or {}) do
+        if svc.spell then want[svc.spell] = true end
+    end
+    local found = {}
+    local prof = T.prof
+    local n = GetNumTrainerServices and GetNumTrainerServices() or 0
+    for i = 1, n do
+        local name, kind = ServiceInfo(i)
+        local spell = kind ~= "header" and SpellFor(prof, i, name)
+        if spell and want[spell] and kind == "available" then found[#found + 1] = i end
+    end
+    table.sort(found, function(a, b) return a > b end)
+    for _, i in ipairs(found) do BuyTrainerService(i) end
 end
 
-SW.On("TRAINER_SHOW", function() SW.Debounce("trainer", 0.2, Scan) end)
-SW.On("TRAINER_UPDATE", function() SW.Debounce("trainer", 0.3, Scan) end)
+local function Schedule(delay)
+    local gen = generation
+    SW.Debounce("trainer", delay, function()
+        if gen ~= generation or quiet or restoring then return end
+        Scan()
+    end)
+end
+
+SW.On("TRAINER_SHOW", function()
+    generation = generation + 1
+    fullDone = false
+    quiet = false
+    suppressVisual = false
+    wipe(T.services)
+    T.prof = nil
+    HookTrainerUpdate()
+    Schedule(0.2)
+end)
+SW.On("TRAINER_UPDATE", function()
+    -- The updates posted by our own filter changes are what made the window strobe.
+    if quiet or restoring or suppressVisual then return end
+    Schedule(0.35)
+end)
 SW.On("TRAINER_CLOSED", function()
-    RestoreFilters()
+    generation = generation + 1
+    fullDone = false
+    quiet = true
+    suppressVisual = true
+    pcall(RestoreFilters)
+    suppressVisual = false
+    quiet = false
     wipe(T.services)
     T.prof = nil
     SW.Fire("TRAINER_CHANGED")
