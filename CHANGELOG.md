@@ -1,5 +1,9 @@
 # Skillwright for WoW: Forever
 
+## 0.1.0-beta6
+
+- Updated shared YippYapp library.
+
 ## 0.1.0-beta5
 
 - Same as beta4; CurseForge did not build that tag.

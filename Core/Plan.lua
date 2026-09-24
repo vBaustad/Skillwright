@@ -27,6 +27,7 @@ end
 
 function Plan.Invalidate(prof)
     Plan.ForgetShopping(prof)
+    Plan.ForgetOrange(prof)
     if prof then
         cache[prof] = nil
         for key, job in pairs(jobs) do
@@ -125,9 +126,14 @@ end
 function Plan.Options(prof, from)
     local db, cp = SW.DB(), SW.CharProf(prof)
     local s = SW.Settings()
+    -- Never plan past the rank cap: at 37/75 the route ends at 75 and the guide says to train the next
+    -- rank first. Planning to 300 there put steps like "skill 37 to 78" in front of the player.
+    local cap = SW.MAX_RANK
+    if cp.has and (cp.max or 0) > 0 then cap = math.min(cap, cp.max) end
     return {
         from = math.max(1, from or cp.rank or 1),
-        to = SW.MAX_RANK,
+        to = cap,
+        colors = db.colors,
         mode = s.mode,
         known = cp.known,
         learnRanks = db.learnRanks,
@@ -163,7 +169,15 @@ local MIN_HAVE = 10
 local HAVE_MAX_VALUE = 10000     -- 1g per unit
 local haveSig = {}
 
+local haveCache = {}
 function Plan.HaveMats(prof)
+    -- One client call per material of the whole profession: far too heavy to repeat per redraw, and the
+    -- answer only changes when the bags do.
+    local c = haveCache[prof]
+    if c and c.bags == (Plan.bagSig or 0) then
+        haveSig[prof] = c.sig
+        return c.have
+    end
     local have, sig = {}, {}
     for id in pairs(ProfessionMats(prof)) do
         local count = Plan.Count(id, true)
@@ -182,12 +196,17 @@ function Plan.HaveMats(prof)
     end
     table.sort(sig)
     haveSig[prof] = table.concat(sig, ",")
+    haveCache[prof] = { bags = Plan.bagSig or 0, have = have, sig = haveSig[prof] }
     return have
 end
 
 -- Tools the character has (bags or bank): rods, hammers, spanners ...
 local ownedSig
+local ownedCache
 function Plan.OwnedTools()
+    -- Counting every tool in the bags is a client call per item, and this runs several times per redraw:
+    -- the answer only changes when the bags do.
+    if ownedCache and ownedCache.bags == (Plan.bagSig or 0) then return ownedCache.owned, ownedCache.sig end
     local owned, sig = {}, {}
     for _, t in pairs(SW.Data.tools or {}) do
         for _, id in ipairs(t[3]) do
@@ -198,7 +217,9 @@ function Plan.OwnedTools()
         end
     end
     table.sort(sig)
-    return owned, table.concat(sig, ",")
+    local text = table.concat(sig, ",")
+    ownedCache = { bags = Plan.bagSig or 0, owned = owned, sig = text }
+    return owned, text
 end
 
 -- The first tool a step still needs, live (it disappears the moment the tool is in your bags).
@@ -234,7 +255,14 @@ function Plan.WantOther(prof, rank, mode)
     local other = mode == "fast" and "cheap" or "fast"
     local r = Cached(prof, other)
     if r and (r.from == rank or (rank >= r.from and rank < r.to)) then return end
-    StartJob(prof, rank, other)
+    -- Not while the player is crafting: the profession window is the one place where a spare solve is
+    -- felt. It is only needed for the "what would the other mode cost" line.
+    if SW.Prof.IsOpen(prof) or (ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
+    if next(jobs) then return end                     -- one route at a time
+    SW.Debounce("wantOther", 2, function()
+        if SW.Prof.IsOpen(prof) or (ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
+        StartJob(prof, rank, other)
+    end)
 end
 
 -- What switching would cost, in one line: nil while the other route is still being worked out.
@@ -264,13 +292,6 @@ function Plan.TradeOff(prof)
     return ("%s: %s"):format(other, table.concat(parts, ", "))
 end
 
--- Switching mode shouldn't move the player off the recipe they are part way through: if the other route
--- also uses it where they stand, that step is the one shown.
-function Plan.StickTo(prof, spell)
-    Plan.sticky = Plan.sticky or {}
-    Plan.sticky[prof] = spell
-end
-
 -- Crafts and cost still to go in each mode, once they are known. Returns cheap, fast (either may be nil).
 function Plan.Compare(prof)
     local rank = math.max(1, SW.Prof.Rank(prof))
@@ -290,6 +311,15 @@ function Plan.Compare(prof)
         return { crafts = crafts, cost = cost, to = r.to }
     end
     return totals("cheap"), totals("fast")
+end
+
+-- The route we already have, or nil. Never starts a solve: for callers that are only asking a question,
+-- such as another addon wondering whether an item matters.
+function Plan.RouteIfReady(prof, mode)
+    local rank = math.max(1, SW.Prof.Rank(prof))
+    local r = Cached(prof, mode or SW.Settings().mode)
+    if r and (r.from == rank or (rank >= r.from and rank < r.to)) then return r end
+    return nil
 end
 
 -- The route, solved here and now (no waiting). Used by anything that can't come back for the answer.
@@ -312,12 +342,113 @@ function Plan.Prefer(prof, spell)
     cp.prefer = cp.prefer or {}
     wipe(cp.prefer)                      -- one choice per group, and groups can't overlap
     if spell then cp.prefer[spell] = true end
+    -- and it becomes the step being followed, until it goes grey or its target is reached
+    if spell then
+        local route = Cached(prof, SW.Settings().mode)
+        local rank = math.max(1, SW.Prof.Rank(prof))
+        local to
+        for _, st in ipairs(route and route.steps or {}) do
+            if rank < st.to then to = st.to break end
+        end
+        Plan.SetActive(prof, spell, to)
+    else
+        Plan.SetActive(prof, nil)
+    end
     Plan.Invalidate(prof)
 end
 
 function Plan.Preferred(prof, spell)
     local cp = SW.CharProf(prof)
     return cp.prefer ~= nil and cp.prefer[spell] == true
+end
+
+-- Of several recipes that all give a guaranteed skill-up, the one that costs least to FINISH from here:
+-- materials already in the bags or bank are paid for, so only what is still missing counts. That is the
+-- user's rule - "number of materials against cost to craft, lowest wins" - and it falls out naturally:
+-- a recipe you have the materials for costs nothing more, however dear it would be to buy.
+local orangeCache = {}
+
+function Plan.ForgetOrange(prof)
+    if prof then orangeCache[prof] = nil else wipe(orangeCache) end
+end
+
+-- crafts you could do right now from what you hold, and what the rest would cost to buy
+local function Affordability(opt, crafts)
+    local canMake, missing = nil, 0
+    for i = 1, #opt.mats, 2 do
+        local id, per = opt.mats[i], opt.mats[i + 1]
+        local have = Plan.Count(id, true)
+        local possible = math.floor(have / math.max(1, per))
+        canMake = (canMake == nil or possible < canMake) and possible or canMake
+        local short = math.max(0, per * crafts - have)
+        if short > 0 then
+            local unit = SW.Prices.Market(id) or (SW.DB().vendor[id] or 0)
+            missing = missing + short * unit
+        end
+    end
+    return canMake or 0, missing
+end
+
+-- The alternatives for the step the player is on, best first. Worked out once per profession, rank and
+-- bag state, so it can't shuffle while they craft.
+function Plan.Orange(prof, rank, to)
+    local sig = ("%d:%d"):format(rank, to)
+    local cached = orangeCache[prof]
+    if cached and cached.sig == sig and cached.bags == Plan.bagSig then return cached.list end
+    local opts = Plan.Options(prof, rank)
+    local list = SW.Solver.Interchangeable(prof, rank, opts)
+    for _, o in ipairs(list) do
+        -- what THIS recipe would take to carry the player to the same skill: an orange one needs fewer
+        -- crafts than a yellow one, which is half of why the choice matters
+        o.crafts = math.max(1, Plan.CraftsLeft({ from = rank, to = to, yellow = o.yellow, grey = o.grey }, rank))
+        o.canMake, o.missing = Affordability(o, o.crafts)
+        o.total = o.cost * o.crafts
+        o.chosen = Plan.Preferred(prof, o.spell) or nil
+    end
+    table.sort(list, function(a, b)
+        if (a.chosen or false) ~= (b.chosen or false) then return a.chosen end
+        if a.missing ~= b.missing then return a.missing < b.missing end   -- cheapest to finish from here
+        if a.cost ~= b.cost then return a.cost < b.cost end               -- then cheapest outright
+        return a.spell < b.spell
+    end)
+    orangeCache[prof] = { sig = sig, bags = Plan.bagSig, list = list }
+    return list
+end
+
+-- The step the player is following, remembered per character and profession (so it survives a /reload).
+-- A guide that changes its mind while you follow it is worse than one that is slightly suboptimal, so a
+-- step is only given up when it stops giving skill, when it is finished, or when the player says so.
+-- Running out of materials is NOT a reason: the guide says what is missing instead.
+function Plan.Active(prof)
+    return SW.CharProf(prof).active
+end
+
+function Plan.SetActive(prof, spell, to)
+    local cp = SW.CharProf(prof)
+    if not spell then
+        cp.active = nil
+        return
+    end
+    local a = cp.active
+    if a and a.spell == spell and a.to == to then return end
+    cp.active = { spell = spell, to = to }
+end
+
+-- Is the recipe we are following still worth following at this skill?
+local function StillGood(prof, spell, rank)
+    local data = SW.Data.professions[prof]
+    if not data then return nil end
+    local cp = SW.CharProf(prof)
+    if not (cp.known and cp.known[spell]) then return nil end
+    for _, r in ipairs(data[2]) do
+        if r[1] == spell then
+            local colors = SW.DB().colors and SW.DB().colors[spell]
+            local yellow = (colors and colors.yellow) or r[5]
+            local grey = (colors and colors.grey) or r[6]
+            if SW.Solver.Chance(yellow, grey, rank) <= 0 then return nil end   -- grey: no skill left in it
+            return r, yellow, grey
+        end
+    end
 end
 
 -- Index of the step the rank falls in (#steps + 1 when past the route).
@@ -349,18 +480,74 @@ function Plan.Current(prof)
     if not route then return nil end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local idx = Plan.StepIndex(route, rank)
-    -- the recipe the player was on before switching mode, when this route uses it here too
-    local stick = Plan.sticky and Plan.sticky[prof]
-    if stick then
-        local found
+    -- The recipe being followed wins wherever this route also uses it here: that is what keeps the guide
+    -- still across a mode switch, a re-plan, or a reload.
+    local active = Plan.Active(prof)
+    if active then
         for i, s in ipairs(route.steps) do
-            if s.spell == stick and rank < s.to and rank >= s.from then found = i break end
+            if s.spell == active.spell and rank >= s.from and rank < s.to then idx = i break end
         end
-        if found then idx = found else Plan.sticky[prof] = nil end
     end
     local step = route.steps[idx]
     if not step then return { route = route, done = true, rank = rank } end
     local left = math.max(1, Plan.CraftsLeft(step, rank))
+
+    -- Several known recipes can be orange at once (four Cooking recipes at skill 39, say). They all give
+    -- a guaranteed skill-up, so the one to SUGGEST is the one that costs least to finish from here, with
+    -- what is already in the bags counting as paid for. Once one is being followed it stays: only losing
+    -- its skill-ups, reaching its target, or the player choosing changes it.
+    local alts, swapped = nil, nil
+    do
+        alts = Plan.Orange(prof, rank, step.to)
+        local active = Plan.Active(prof)
+        if active and (rank >= (active.to or step.to) or not StillGood(prof, active.spell, rank)) then
+            Plan.SetActive(prof, nil)                 -- finished, or it has gone grey
+            active = nil
+        end
+        local pick
+        if active then
+            for _, o in ipairs(alts) do
+                if o.spell == active.spell then pick = o break end
+            end
+            -- it may be out of the "orange" list only because we have no price for it: keep it anyway
+            if not pick and StillGood(prof, active.spell, rank) then pick = { spell = active.spell } end
+        elseif #alts > 0 then
+            -- The planned recipe keeps the benefit of the doubt: another one only takes over when it
+            -- costs strictly less to finish from here, which is what holding the materials does.
+            local planned
+            for _, o in ipairs(alts) do
+                if o.spell == step.spell then planned = o break end
+            end
+            local best = alts[1]
+            if planned and planned.missing <= best.missing then best = planned end
+            pick = best
+            Plan.SetActive(prof, pick.spell, step.to)
+        end
+        if pick and pick.spell ~= step.spell then
+            if not pick.mats then                     -- kept without a price: fill it in from the data
+                for _, o in ipairs(Plan.Orange(prof, rank, left)) do
+                    if o.spell == pick.spell then pick = o break end
+                end
+            end
+            if pick.mats then
+                -- a copy: the route itself is left alone, only what the guide shows changes
+                local copy = {}
+                for k, v in pairs(step) do copy[k] = v end
+                copy.spell, copy.item, copy.qty = pick.spell, pick.item, pick.qty
+                copy.costEach, copy.yellow, copy.grey = pick.cost, pick.yellow, pick.grey
+                -- the alternatives carry per-craft prices; a step's materials also need `count`
+                copy.mats = {}
+                for _, m in ipairs(pick.priced or {}) do
+                    copy.mats[#copy.mats + 1] = { id = m.id, per = m.per, count = m.per * left,
+                                                  unit = m.unit, priceSource = m.priceSource }
+                end
+                copy.vendorOnly, copy.haveMats = pick.vendorOnly, pick.haveMats
+                copy.alts, copy.chosenByPlayer = nil, Plan.Preferred(prof, pick.spell) or nil
+                step, swapped = copy, true
+                left = math.max(1, Plan.CraftsLeft(step, rank))
+            end
+        end
+    end
     -- A tool still to make (or buy) comes first: the step can't be crafted without it.
     local tool = Plan.PendingTool(step)
     local srcMats = step.mats
@@ -381,6 +568,7 @@ function Plan.Current(prof)
     local craftSpell = tool and tool.spell or step.spell
     return {
         route = route, idx = idx, step = step, rank = rank, left = left, mats = mats, tool = tool,
+        orange = alts, swapped = swapped,
         craftable = math.min(craftable or (tool and 1 or 0), left),
         known = craftSpell and SW.Prof.Knows(prof, craftSpell) or false,
         color = tool and tool.yellow and SW.Solver.Color(tool.yellow, tool.grey, rank)
@@ -487,7 +675,7 @@ function Plan.TrainingDue(prof)
     end
 end
 
-for _, ev in ipairs({ "RECIPES_CHANGED", "TRAINER_FACTS", "PRICES_CHANGED" }) do
+for _, ev in ipairs({ "RECIPES_CHANGED", "TRAINER_FACTS", "PRICES_CHANGED", "COLORS_CHANGED" }) do
     SW.Listen(ev, function(prof)
         if type(prof) == "number" then Plan.Invalidate(prof) else Plan.Invalidate() end
     end)
@@ -497,6 +685,11 @@ end
 -- enough of, actually changes - and then at most once every few seconds.
 SW.On("BAG_UPDATE_DELAYED", function()
     SW.Coalesce("bagsChanged", 3, function()
+        -- what is in the bags decides which guaranteed recipe is cheapest to finish: let that list go
+        -- stale on a timer, never mid-craft
+        Plan.bagSig = (Plan.bagSig or 0) + 1
+        Plan.ForgetOrange()
+        wipe(haveCache)
         local _, sig = Plan.OwnedTools()
         local changed = ownedSig and sig ~= ownedSig
         ownedSig = sig

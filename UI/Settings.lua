@@ -113,6 +113,12 @@ function Page.Build(f)
         "Just the recipe to make, its materials and the Craft button. The - / + button by the close button "
         .. "switches too.", function() SW.SetMinimal(SW.Settings().minimal) end)
 
+    -- Trainers
+    heading("Trainers")
+    checkbox("Read everything a trainer teaches", "deepTrainerScan",
+        "Once per trainer, Skillwright also reads what you can't learn yet, to get the real skill each "
+        .. "recipe needs. The trainer's list blinks once while it does. Your own filters are put back.")
+
     -- Enchanting
     heading("Enchanting")
     checkbox("Say Yes to \"replace enchant\" automatically", "autoReplaceEnchant",

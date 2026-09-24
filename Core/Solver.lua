@@ -169,6 +169,44 @@ end
 
 local toolItemCache = {}
 -- Items that count as tool category `cat`, lowest tier first (a Runed Silver Rod counts for copper-rod recipes).
+-- Known recipes that still give skill at `rank`, orange ones marked as guaranteed. The guide offers these
+-- as alternatives to the step, so the player can make what they actually hold materials for.
+function Solver.Interchangeable(prof, rank, opts)
+    local data = SW.Data.professions[prof]
+    if not (data and opts and opts.known) then return {} end
+    local price = Solver.NewPricer(prof, opts)
+    local out = {}
+    for _, r in ipairs(data[2]) do
+        if opts.known[r[F_SPELL]] and not (r[F_CAMP] and not opts.allowCamp) then
+            local seen = opts.colors and opts.colors[r[F_SPELL]]
+            local yellow = (seen and seen.yellow) or r[F_YELLOW]
+            local grey = (seen and seen.grey) or r[F_GREY]
+            if Solver.Chance(yellow, grey, rank) > 0 then
+                local toolsOK = true
+                for _, cat in ipairs(r[F_TOOLS] or {}) do
+                    if not Solver.HasTool(cat, opts.owned or {}) then toolsOK = false break end
+                end
+                if toolsOK then
+                    local cost, vendorOnly, _, haveAll = craftCost(r, price, opts.preferVendor)
+                    -- per-craft only: how many crafts this would take depends on where the player is,
+                    -- so `count` is filled in by whoever turns this into a step (Plan.Current)
+                    local priced = {}
+                    for i = 1, #r[F_MATS], 2 do
+                        local unit, src = price(r[F_MATS][i])
+                        priced[#priced + 1] = { id = r[F_MATS][i], per = r[F_MATS][i + 1], unit = unit,
+                                                priceSource = src }
+                    end
+                    out[#out + 1] = { spell = r[F_SPELL], item = r[F_ITEM], qty = r[F_QTY], mats = r[F_MATS],
+                                      cost = cost, ups = max(1, r[F_UPS]), vendorOnly = vendorOnly,
+                                      yellow = yellow, grey = grey, guaranteed = rank < yellow or nil,
+                                      priced = priced, vendorOnly = vendorOnly, haveMats = haveAll }
+                end
+            end
+        end
+    end
+    return out
+end
+
 function Solver.ToolItems(cat)
     local cached = toolItemCache[cat]
     if cached then return cached end
@@ -239,6 +277,10 @@ end
 
 ---------------------------------------------------------------------------------------------------- solve
 
+-- A step's materials, in the one shape everything downstream expects:
+--   { id, per (one craft), count (the whole step), unit (copper each), priceSource }
+-- Anything that builds this table by hand must fill in all five - a missing `count` used to throw in the
+-- route tooltip, which only runs on hover, so nothing caught it until a player did.
 local function matsOf(r, crafts, price)
     local out, mats = {}, r[F_MATS]
     for i = 1, #mats, 2 do
@@ -278,9 +320,15 @@ function Solver.Solve(prof, opts)
             -- the skill each recipe needs and gives, worked out once: the rank loop below runs 300 times
             local learn = Solver.LearnRank(r, opts, false)
             local learnFB = Solver.LearnRank(r, opts, true)
+            -- Thresholds the game itself showed us beat our datamined ones (Forever moved some)
+            local seen = opts.colors and opts.colors[r[F_SPELL]]
+            local yellow = (seen and seen.yellow) or r[F_YELLOW]
+            local grey = (seen and seen.grey) or r[F_GREY]
+            -- only guard numbers we learned in game: the datamined pairs may legitimately be equal
+            if seen and grey <= yellow then grey = yellow + 1 end
             local c = { r = r, cost = cost, vendorOnly = vendorOnly, weight = weighted, haveMats = haveAll,
                         learn = learn, learnFB = learnFB, first = learn < learnFB and learn or learnFB,
-                        yellow = r[F_YELLOW], grey = r[F_GREY], ups = max(1, r[F_UPS]) }
+                        yellow = yellow, grey = grey, ups = max(1, r[F_UPS]) }
             cands[#cands + 1] = c
             bySpell[r[F_SPELL]] = c
             if r[F_ITEM] > 0 and not makers[r[F_ITEM]] then makers[r[F_ITEM]] = r end
@@ -437,13 +485,13 @@ function Solver.Solve(prof, opts)
         end
         local c = cands[pick]
         local r = c.r
-        local p = Solver.Chance(r[F_YELLOW], r[F_GREY], rank)
-        local ups = max(1, r[F_UPS])
+        local p = Solver.Chance(c.yellow, c.grey, rank)
+        local ups = c.ups
         local step = steps[#steps]
         if pick ~= cur or not step then
             local learn, est = Solver.LearnRank(r, opts, fb[rank])
             step = { from = rank, to = rank, spell = r[F_SPELL], item = r[F_ITEM], qty = r[F_QTY],
-                     yellow = r[F_YELLOW], grey = r[F_GREY], source = r[F_SRC], recipeItem = r[F_RITEM],
+                     yellow = c.yellow, grey = c.grey, source = r[F_SRC], recipeItem = r[F_RITEM],
                      station = r[F_STATION], learn = learn, learnEstimated = est, vendorOnly = c.vendorOnly,
                      haveMats = c.haveMats,
                      attempts = 0, costEach = c.cost, tools = r[F_TOOLS],

@@ -161,6 +161,7 @@ local DEFAULTS = {
         preferVendor = true,     -- favour recipes whose materials all come from a vendor
         useOwned = true,         -- count materials already in the bags or bank as (nearly) free
         autoReplaceEnchant = false, -- accept "replace enchant?" for enchants Skillwright started
+        deepTrainerScan = true,  -- read a trainer's hidden services once per visit (the list blinks once)
     },
     learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers
     trainerSeen = {},            -- [recipeSpellID] = true when a trainer offers it
@@ -189,6 +190,20 @@ function SW.DB()
 end
 
 function SW.Settings() return SW.DB().settings end
+
+-- WoW: Forever sometimes fails to load saved variables. Everything we know - prices, the skill each
+-- trainer recipe needs, the colours we learned, which recipe you were following - then starts empty, and
+-- the guide would silently look as if the player had never used it. We say so instead, once.
+-- Nothing an addon can do preserves the file: the client rewrites it at logout either way.
+SW.dataLost = false
+SW.Listen("LOGIN", function()
+    local LIB = SW.LIB
+    if not (LIB and LIB.Listen) then return end
+    LIB.Listen("SAVED_VARIABLES_EMPTY", function()
+        SW.dataLost = true
+        SW.Fire("DATA_LOST")
+    end)
+end)
 
 -- Per character: profession ranks, learned recipes and the chosen specialization.
 function SW.CharDB()
@@ -239,8 +254,6 @@ SlashCmdList.SKILLWRIGHT = function(input)
         SW.SetMode(cmd)
     elseif cmd == "prices" then
         SW.Prices.PrintStatus()
-    elseif cmd == "debug" and strtrim(input or ""):lower():match("^debug%s+passives") then
-        SW.Probe.Run()
     elseif cmd == "debug" and strtrim(input or ""):lower():match("^debug%s+drift") then
         SW.Drift.Print(false)
     elseif cmd == "debug" then

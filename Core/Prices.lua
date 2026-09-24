@@ -60,10 +60,6 @@ function Pr.SourceText()
     return table.concat(parts, ", ")
 end
 
-function Pr.HasMarket()
-    return Pr.SourceText() ~= nil
-end
-
 -- Whether the guide has real auction prices: "addon" (Auctionator/TSM), "scan" (our own, fresh enough),
 -- "stale" (our scan is older than the "prices go stale" setting) or "none".
 function Pr.Status()
@@ -145,7 +141,7 @@ local function Finish(rows)
     -- Prices older than a month are never used again (the setting caps them at days): drop them so the
     -- saved table can't grow for ever.
     local cutoff = now - KEEP_PRICES
-    for id, e in pairs(ah) do
+    for id, e in pairs(SW.dataLost and {} or ah) do
         if type(e) ~= "table" or not e[2] or e[2] < cutoff then ah[id] = nil end
     end
     SW.DB().ahScanned = now

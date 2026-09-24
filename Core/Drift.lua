@@ -7,7 +7,7 @@ local ADDON, SW = ...
 local D = {}
 SW.Drift = D
 
-local F_SPELL, F_GREY, F_UPS, F_MATS = 1, 6, 7, 10
+local F_SPELL, F_YELLOW, F_GREY, F_UPS, F_MATS = 1, 5, 6, 7, 10
 local PER_PASS = 25          -- recipes whose reagents we read per window open: the schematic read is the slow one
 
 local function Row(prof, spell)
@@ -56,8 +56,43 @@ local function SameMats(row, live)
     return n == m
 end
 
+-- What the game showed us about a recipe's thresholds, kept account-wide and preferred by the solver.
+--   grey  = maxTrivialLevel, which the client states outright.
+--   yellow = not stated, but bounded by the colour at the skill we are standing on: a recipe still shown
+--            as "optimal" (orange) at skill 39 cannot turn yellow at or below 39, whatever our data says.
+local function Learn(spell, row, info, rank)
+    local db = SW.DB()
+    db.colors = db.colors or {}
+    local e = db.colors[spell] or {}
+    local changed = false
+
+    local grey = info.maxTrivialLevel
+    if grey and grey > 0 and e.grey ~= grey then
+        e.grey, changed = grey, true
+    end
+
+    -- Enum.TradeskillRelativeDifficulty: 0 Optimal (orange), 1 Medium (yellow), 2 Easy (green), 3 Trivial
+    local diff = info.relativeDifficulty
+    if diff ~= nil and rank and rank > 0 then
+        local yellow = e.yellow or row[F_YELLOW]
+        if diff == 0 and yellow <= rank then
+            e.yellow, changed = rank + 1, true       -- still orange here: yellow must be higher
+        elseif diff == 1 and yellow > rank then
+            e.yellow, changed = rank, true           -- already yellow here: yellow can be no higher
+        end
+    end
+
+    if changed then
+        db.colors[spell] = e
+        return true
+    end
+    return false
+end
+
 -- Compare what the open window says with what our data says, and keep the tally.
 function D.Scan(prof)
+    local t = debugprofilestop and debugprofilestop()
+    local rank = SW.Prof.Rank(prof)
     local T = C_TradeSkillUI
     if not (prof and T and T.GetAllRecipeIDs and T.GetRecipeInfo) then return end
     local ok, ids = pcall(T.GetAllRecipeIDs)
@@ -65,13 +100,14 @@ function D.Scan(prof)
     local db = SW.DB()
     db.tsDrift = db.tsDrift or { checked = 0, grey = 0, ups = 0, mats = 0, matsChecked = 0 }
     local d = db.tsDrift
-    local seen = 0
+    local seen, learned = 0, false
     for _, spell in ipairs(ids) do
         local row = Row(prof, spell)
         if row then
             local info = T.GetRecipeInfo(spell)
             if info and info.learned then
                 d.checked = d.checked + 1
+                if Learn(spell, row, info, rank) then learned = true end
                 local grey = info.maxTrivialLevel
                 if grey and grey > 0 and grey ~= row[F_GREY] then
                     d.grey = d.grey + 1
@@ -97,7 +133,10 @@ function D.Scan(prof)
             end
         end
     end
+    if t then SW.dbg("drift scan took %.0f ms", debugprofilestop() - t) end
     D.Print(true)
+    -- Better thresholds change the route, so it has to be worked out again.
+    if learned then SW.Fire("COLORS_CHANGED", prof) end
 end
 
 -- The tally, for /skw debug. Quiet unless there is something to say.
@@ -108,11 +147,20 @@ function D.Print(onlyIfDebug)
         return
     end
     local function pct(n) return 100 * n / math.max(1, d.checked) end
+    local corrected = 0
+    for _ in pairs(SW.DB().colors or {}) do corrected = corrected + 1 end
     local line = ("drift: %d recipes compared, grey differs %d (%.0f%%, worst %d), skill-ups differ %d (%.0f%%), "
-        .. "reagents differ %d of %d read"):format(d.checked, d.grey, pct(d.grey), d.greyWorst or 0, d.ups,
-        pct(d.ups), d.mats, d.matsChecked)
+        .. "reagents differ %d of %d read, %d recipes corrected from what the game showed"):format(
+        d.checked, d.grey, pct(d.grey), d.greyWorst or 0, d.ups, pct(d.ups), d.mats, d.matsChecked, corrected)
     if onlyIfDebug then SW.dbg("%s", line) else SW.msg("%s", line) end
 end
 
-SW.Listen("PROFESSION_OPEN", function(prof) SW.Debounce("drift", 1, function() D.Scan(prof) end) end)
-SW.Listen("PROFESSION_UPDATED", function(prof) SW.Debounce("drift", 2, function() D.Scan(prof) end) end)
+-- Once per profession window. It used to run on every update too, which meant a full pass (and 25
+-- schematic reads) after every single craft - felt as lag while crafting.
+local done
+SW.Listen("PROFESSION_OPEN", function(prof)
+    if done == prof then return end
+    done = prof
+    SW.Debounce("drift", 1, function() D.Scan(prof) end)
+end)
+SW.Listen("PROFESSION_CLOSED", function() done = nil end)
