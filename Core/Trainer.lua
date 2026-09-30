@@ -96,29 +96,15 @@ local saved       -- the player's own filters while we have ours on
 local busy        -- true while WE are changing filters: every event in that window is ours, so ignore it
 local deepDone    -- the one deep read of this trainer window has been done
 
--- Blizzard's trainer frame redraws its rows on TRAINER_UPDATE, so our own filter change makes the list
--- visibly rebuild twice, whatever we do about our own scanning. While our filters are moving we hold that
--- redraw, then put the frame's own function back and let it draw once with the player's filters.
--- Held for two frames at most, and only when the window is open; if anything else has replaced the
--- function in the meantime we leave it alone rather than clobber it.
-local heldUpdate
-local function HoldRedraw()
-    if heldUpdate or type(_G.ClassTrainerFrame_Update) ~= "function" then return end
-    heldUpdate = _G.ClassTrainerFrame_Update
-    _G.ClassTrainerFrame_Update = function(...)
-        if busy then return end
-        return heldUpdate(...)
-    end
-end
+-- ClassTrainerFrame is reused for profession trainers AND pet/class/riding trainers.
+-- Replacing ClassTrainerFrame_Update taints that shared frame, so the default Train
+-- button dies with ADDON_ACTION_FORBIDDEN on BuyTrainerService — including pet training.
+-- Do not wrap or replace any Blizzard trainer function.
+local function HoldRedraw() end
+local function ReleaseRedraw() end
 
-local function ReleaseRedraw()
-    if not heldUpdate then return end
-    local mine = _G.ClassTrainerFrame_Update
-    local original = heldUpdate
-    heldUpdate = nil
-    if type(mine) == "function" then _G.ClassTrainerFrame_Update = original end
-    -- one honest redraw, with the player's own filters back in place
-    if ClassTrainerFrame and ClassTrainerFrame:IsShown() then pcall(original, true) end
+local function IsProfessionTrainer()
+    return IsTradeskillTrainer and IsTradeskillTrainer() and true or false
 end
 
 -- Turning a filter on rebuilds the list and fires TRAINER_UPDATE. Reacting to that event would set the
@@ -273,20 +259,25 @@ end
 
 function T.Train(list)
     if SW.CombatBlocked("train") then return end
-    -- what they just learned has to be believed immediately, or the guide asks for it again
+    -- BuyTrainerService is protected. Calling it from addon code produces
+    -- ADDON_ACTION_FORBIDDEN and poisons the default Train button (pets included).
+    local n = type(list) == "table" and #list or 0
+    if n == 0 then
+        SW.msg("nothing to train here - pick the recipe in the trainer window and click Train.")
+        return
+    end
+    SW.msg("the game will not let addons learn skills for you. In the trainer window, click |cffffd100Train|r for the highlighted recipe%s.", n == 1 and "" or "s")
     C_Timer.After(0.5, function()
         SW.Prof.ScanKnownSpells()
         SW.Fire("RECIPES_CHANGED")
     end)
-    -- Highest index first: learning a service can shift the ones after it.
-    table.sort(list, function(a, b) return a.index > b.index end)
-    for _, svc in ipairs(list) do BuyTrainerService(svc.index) end
 end
 
 -- Read what the player's own filters show. Once per trainer window, and only if they asked for it,
 -- also read the hidden services: filters on, read, filters back, done - one blink, never a loop.
 local function Scan()
     if busy then return end
+    if not IsProfessionTrainer() then return end
     Read()
     if deepDone or SW.Settings().deepTrainerScan == false then return end
     deepDone = true
@@ -300,10 +291,12 @@ end
 
 SW.On("TRAINER_SHOW", function()
     deepDone = false
+    if not IsProfessionTrainer() then return end
     SW.Debounce("trainer", 0.2, Scan)
 end)
 SW.On("TRAINER_UPDATE", function()
     if busy then return end                        -- our own filter change: not a reason to scan again
+    if not IsProfessionTrainer() then return end
     SW.Debounce("trainer", 0.3, Scan)
 end)
 SW.On("TRAINER_CLOSED", function()
