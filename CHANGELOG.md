@@ -84,6 +84,9 @@
 
 ### The window
 
+- **The list's rows no longer sit on each other.** They were taller than the space between them,
+  so every row overlapped the next and every icon leaned into the line below - worst in the first
+  second after opening, before the icons had loaded and given the eye something to lock onto.
 - **The list says what its columns are.** The skill you need on the left, the skill it stops
   helping at on the right, and the name in the colour the trade window gives it - all three
   named, with the rest on the hover.

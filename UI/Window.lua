@@ -6,6 +6,11 @@ local Plan = SW.Plan
 
 local W, H = 400, 560
 local ROW = 26
+-- A list is a column of facts and sits tighter than the route's own steps, which are things to go
+-- and do. These are row HEIGHTS, and the step between rows is the same number - the two drifted
+-- apart once and every row overlapped the next by eight pixels.
+local TIGHT = 18
+local HEADER = 22
 local win
 local views = {}          -- [id] = { frame, build, refresh }
 -- The settings live in the YippYapp window (LibForever); the gear in the corner opens them. Without the
@@ -1109,6 +1114,12 @@ local function RouteRow(f, i, numberFirst)
         -- row on the next, and must not keep the bar or the rarity border with it
         self.bg:SetColorTexture(1, 1, 1, 0.05)
         if self.rarity then self.rarity:Hide() end
+        -- A ROW'S HEIGHT AND THE STEP BETWEEN ROWS ARE THE SAME MEASUREMENT. The list's spacing
+        -- was tightened to TIGHT and the rows left at ROW with a 22-pixel icon, so every row
+        -- overlapped the next by eight and every icon leaned into the line below.
+        local h = numberFirst and TIGHT or ROW
+        self:SetHeight(h)
+        self.icon:SetSize(h - 4, h - 4)
         self.icon:ClearAllPoints()
         self.range:ClearAllPoints()
         self.text:ClearAllPoints()
@@ -1136,8 +1147,7 @@ end
 
 -- A list is a column of facts, not a page of cards: these rows sit closer together than the
 -- route's own steps, which are things to go and do.
-local TIGHT = 18
-local HEADER = 22
+
 
 -- WHAT'S TRAINABLE, in the three groups the class trainer's own panel uses: what you can learn
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
@@ -1262,6 +1272,7 @@ local function DrawTrainable(f, prof, c, y, n)
                 SW.RefreshWindow()
             end)
             h:ClearAllPoints()
+            h:SetHeight(HEADER)
             h:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
             h:SetPoint("RIGHT", c, "RIGHT", 0, 0)
             h:Show()
