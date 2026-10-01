@@ -1138,15 +1138,16 @@ local TIGHT = 18
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
 -- page is for the route, and this is a reference list you go and open.
 local TRAIN_GROUPS = {
-    { key = "now",    label = "Learn at a trainer" },
-    { key = "recipe", label = "Needs the recipe" },
-    { key = "later",  label = "Needs more skill" },
+    { key = "now",    label = "Learn at a trainer",  live = true },
+    { key = "recipe", label = "Find the recipe",     live = true },
+    { key = "soon",   label = "Not enough skill yet" },
+    { key = "dead",   label = "Too late to help",    dim = true },
 }
 
 local function DrawTrainable(f, prof, c, y, n)
     local list = Plan.Trainable(prof)
     if not list then return y, n end
-    local total = #list.now + #list.recipe + #list.later
+    local total = #list.now + #list.recipe + #list.soon
     if total == 0 then return y, n end
 
     local open = SW.Settings().trainableOpen and true or false
@@ -1156,7 +1157,9 @@ local function DrawTrainable(f, prof, c, y, n)
     head.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up"
         or "Interface\\Buttons\\UI-PlusButton-Up")
     head.range:SetText("")
-    head.text:SetText(("|cffffd100Not learned|r  |cff8a8a8a%d|r"):format(total))
+    -- the headline counts what is still worth something; the dead ones are counted in their
+    -- own group, where the number is a fact rather than a promise
+    head.text:SetText(("|cffffd100Still worth learning|r  |cff8a8a8a%d|r"):format(total))
     head.right:SetText("")
     head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
         tt:AddLine("Not learned", 1, 0.82, 0.3)
@@ -1202,19 +1205,16 @@ local function DrawTrainable(f, prof, c, y, n)
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
                 -- The skill it takes to learn, first, because that is what the list is sorted by.
                 r.range:SetText(("|cff%s%d|r"):format(reach and "ffd100" or "8a8a8a", row.need))
-                -- The name is coloured by WHAT IT IS, which is what an item list is for. It
-                -- used to carry whether the row could be acted on, because that had nowhere else
-                -- to live; now the group says that, so the colour is free to be the item's own.
-                -- Dimmed when it is out of reach, so the three groups still read apart at a glance.
-                local name = U.RecipeName(row.spell)
-                if row.item and row.item > 0 then
-                    name = U.ItemQualityColor(row.item) .. name .. "|r"
-                else
-                    name = "|cffffffff" .. name .. "|r"
-                end
-                r.text:SetText(name)
-                r.text:SetAlpha(reach and 1 or 0.55)
-                r.right:SetText(row.estimated and "|cffff8040*?|r" or "")
+                -- THE DIFFICULTY COLOUR, because in a profession list that is the information:
+                -- it says whether a recipe will raise your skill. Item quality was nearly constant
+                -- - every smithing recipe is green - so it carried nothing. This read as noise
+                -- before only because dead recipes were mixed in with live ones; they are in their
+                -- own group now, so it reads straight.
+                r.text:SetText(U.Colored(row.colour, U.RecipeName(row.spell)))
+                r.text:SetAlpha(g.dim and 0.5 or 1)
+                -- and where it dies, which is what decides whether it is worth the walk
+                r.right:SetText((row.estimated and "|cffff8040*?|r " or "")
+                    .. (g.live and ("|cff8a8a8ato %d|r"):format(row.grey) or ""))
                 r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
                 r:SetScript("OnMouseUp", nil)
                 r:ClearAllPoints()

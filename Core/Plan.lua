@@ -613,7 +613,7 @@ function Plan.Trainable(prof)
     local rank = math.max(1, SW.Prof.Rank(prof))
     local opts = Plan.Options(prof, rank)
     local db = SW.DB()
-    local now, recipe, later = {}, {}, {}
+    local now, recipe, soon, dead = {}, {}, {}, {}
     for _, r in ipairs(data[2]) do
         local spell = r[1]
         if not SW.Prof.Knows(prof, spell) then
@@ -629,24 +629,38 @@ function Plan.Trainable(prof)
                 note = LEARN_SOURCE[src] or (type(src) == "string" and src:match("^s:(.+)$")
                     and ("%s only"):format(src:match("^s:(.+)$"))) or nil,
             }
-            -- Three answers to "what do I do about this one", and they are different errands:
-            -- go to a trainer, go and find the recipe, or come back when you are better. Having
-            -- the skill is not enough for most of Forever's recipes, and a list that mixes the two
-            -- buries the handful you can act on today.
+            -- WHAT CAN THIS RECIPE STILL DO FOR ME. A recipe whose grey is at or below the
+            -- player's skill is finished: learning it can never raise the skill again, and a list
+            -- that opens with seventy of those is a list nobody reads. They go last, counted.
+            --
+            -- Everything else is one of three errands - go to a trainer, go and find the recipe,
+            -- or come back when you are better.
+            row.grey = r[6]
             local reach = need <= rank
             local fromTrainer = src == "t" or src == "a"
-            local into = (not reach and later) or (fromTrainer and now) or recipe
+            local into = (r[6] <= rank and dead)
+                or (not reach and soon)
+                or (fromTrainer and now)
+                or recipe
             into[#into + 1] = row
         end
+    end
+    -- The live groups are sorted by how much skill is LEFT in them, not by what they cost to
+    -- learn: the recipe that stays useful longest is the one worth walking for. The ones you
+    -- cannot reach yet are sorted by what they need, because there the question is "what is next".
+    local function byHeadroom(a, b)
+        if a.grey ~= b.grey then return a.grey > b.grey end
+        return a.spell < b.spell
     end
     local function bySkill(a, b)
         if a.need ~= b.need then return a.need < b.need end
         return a.spell < b.spell
     end
-    table.sort(now, bySkill)
-    table.sort(recipe, bySkill)
-    table.sort(later, bySkill)
-    return { now = now, recipe = recipe, later = later, rank = rank }
+    table.sort(now, byHeadroom)
+    table.sort(recipe, byHeadroom)
+    table.sort(soon, bySkill)
+    table.sort(dead, bySkill)
+    return { now = now, recipe = recipe, soon = soon, dead = dead, rank = rank }
 end
 
 -- The step the player is following, remembered per character and profession (so it survives a /reload).

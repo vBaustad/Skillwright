@@ -11,11 +11,12 @@
 
 ### The route
 
-- **Everything you have not learned, on the Route tab.** A collapsed section you can open, in
-  three groups that are three different errands: what you can go and learn at a trainer, what you
-  have the skill for but need the recipe for, and what is still out of reach. The skill each one
-  needs is on the left, and each name is in its item's own colour. A skill we have estimated is
-  marked; visit the trainer once and the real number replaces it.
+- **What you have not learned, on the Route tab**, opening on the part that can still help you.
+  Four groups: what to go and learn at a trainer, what you have the skill for but need the recipe
+  for, what is still out of reach, and - last and dimmed - what has gone grey and can no longer
+  raise your skill at all. The first two are ordered by how much skill is left in each recipe,
+  not by what it costs to learn, and each row says where it goes grey. A skill we have estimated
+  is marked; visit the trainer once and the real number replaces it.
 - **The plan now runs the whole way to 300**, with the trainer visits in it as steps of their own -
   Journeyman at 75, Expert at 150, Artisan at 225. Before, it stopped at whatever your current rank
   cap was, so a smith at 81 saw two steps and a footnote. When the next thing to do is walk to a
