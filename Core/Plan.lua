@@ -613,7 +613,7 @@ function Plan.Trainable(prof)
     local rank = math.max(1, SW.Prof.Rank(prof))
     local opts = Plan.Options(prof, rank)
     local db = SW.DB()
-    local now, later = {}, {}
+    local now, recipe, later = {}, {}, {}
     for _, r in ipairs(data[2]) do
         local spell = r[1]
         if not SW.Prof.Knows(prof, spell) then
@@ -629,7 +629,13 @@ function Plan.Trainable(prof)
                 note = LEARN_SOURCE[src] or (type(src) == "string" and src:match("^s:(.+)$")
                     and ("%s only"):format(src:match("^s:(.+)$"))) or nil,
             }
-            local into = need <= rank and now or later
+            -- Three answers to "what do I do about this one", and they are different errands:
+            -- go to a trainer, go and find the recipe, or come back when you are better. Having
+            -- the skill is not enough for most of Forever's recipes, and a list that mixes the two
+            -- buries the handful you can act on today.
+            local reach = need <= rank
+            local fromTrainer = src == "t" or src == "a"
+            local into = (not reach and later) or (fromTrainer and now) or recipe
             into[#into + 1] = row
         end
     end
@@ -638,8 +644,9 @@ function Plan.Trainable(prof)
         return a.spell < b.spell
     end
     table.sort(now, bySkill)
+    table.sort(recipe, bySkill)
     table.sort(later, bySkill)
-    return { now = now, later = later, rank = rank }
+    return { now = now, recipe = recipe, later = later, rank = rank }
 end
 
 -- The step the player is following, remembered per character and profession (so it survives a /reload).

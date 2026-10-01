@@ -1138,14 +1138,15 @@ local TIGHT = 18
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
 -- page is for the route, and this is a reference list you go and open.
 local TRAIN_GROUPS = {
-    { key = "now",   label = "Learnable now" },
-    { key = "later", label = "Needs more skill" },
+    { key = "now",    label = "Learn at a trainer" },
+    { key = "recipe", label = "Needs the recipe" },
+    { key = "later",  label = "Needs more skill" },
 }
 
 local function DrawTrainable(f, prof, c, y, n)
     local list = Plan.Trainable(prof)
     if not list then return y, n end
-    local total = #list.now + #list.later
+    local total = #list.now + #list.recipe + #list.later
     if total == 0 then return y, n end
 
     local open = SW.Settings().trainableOpen and true or false
@@ -1201,15 +1202,19 @@ local function DrawTrainable(f, prof, c, y, n)
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
                 -- The skill it takes to learn, first, because that is what the list is sorted by.
                 r.range:SetText(("|cff%s%d|r"):format(reach and "ffd100" or "8a8a8a", row.need))
-                -- ONE SCALE. This used to colour the name by how much skill MAKING it would give,
-                -- which is a different number from the one in the column beside it and answers a
-                -- question nobody has while looking at things they cannot make yet. The colour
-                -- says whether the row can be acted on: white go, grey you need the recipe first,
-                -- grey-red not enough skill.
-                local tint = (not reach and "ff6a6a6a") or (row.note and "ffb0b0b0") or "ffffffff"
-                r.text:SetText(("|c%s%s|r"):format(tint, U.RecipeName(row.spell)))
-                r.right:SetText((row.estimated and "|cffff8040*?|r " or "")
-                    .. (row.note and ("|cff8a8a8a%s|r"):format(row.note) or ""))
+                -- The name is coloured by WHAT IT IS, which is what an item list is for. It
+                -- used to carry whether the row could be acted on, because that had nowhere else
+                -- to live; now the group says that, so the colour is free to be the item's own.
+                -- Dimmed when it is out of reach, so the three groups still read apart at a glance.
+                local name = U.RecipeName(row.spell)
+                if row.item and row.item > 0 then
+                    name = U.ItemQualityColor(row.item) .. name .. "|r"
+                else
+                    name = "|cffffffff" .. name .. "|r"
+                end
+                r.text:SetText(name)
+                r.text:SetAlpha(reach and 1 or 0.55)
+                r.right:SetText(row.estimated and "|cffff8040*?|r" or "")
                 r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
                 r:SetScript("OnMouseUp", nil)
                 r:ClearAllPoints()
