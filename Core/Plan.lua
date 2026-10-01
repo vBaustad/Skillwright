@@ -592,7 +592,20 @@ end
 -- Nothing is scanned for this. The requirement comes from db.learnRanks when a trainer has been
 -- visited, from the recipe data when it carries one, and otherwise from Solver.LearnRank, which is
 -- our estimate and is marked as one.
-local SOON = 25        -- "coming soon" is the next 25 skill: about one trainer visit away
+-- EVERYTHING YOU HAVE NOT LEARNED, split at the one question that decides what you can do about
+-- it: do you have the skill for it. That is the shape of the list the user asked for.
+--
+-- Having the skill is not the whole story for most of Forever's recipes - they come from a drop or
+-- a vendor, so you can meet the requirement and still not be able to learn it. Rather than invent
+-- a third group, each row carries where it comes from and the ones that need a recipe say so.
+-- "Learnable now" has to mean what it says.
+local LEARN_SOURCE = {
+    t = nil,                            -- a trainer: nothing to add, this is the plain case
+    a = "automatic",
+    r = "needs the recipe",
+    q = "from a quest",
+    c = "from a quest",
+}
 
 function Plan.Trainable(prof)
     local data = SW.Data.professions[prof]
@@ -600,21 +613,23 @@ function Plan.Trainable(prof)
     local rank = math.max(1, SW.Prof.Rank(prof))
     local opts = Plan.Options(prof, rank)
     local db = SW.DB()
-    local now, soon, later = {}, {}, {}
+    local now, later = {}, {}
     for _, r in ipairs(data[2]) do
         local spell = r[1]
-        -- only what a TRAINER teaches, and only what you cannot already do
-        if r[8] == "t" and not SW.Prof.Knows(prof, spell) then
+        if not SW.Prof.Knows(prof, spell) then
             local need, estimated = db.learnRanks[spell], false
             if not need or need <= 0 then
                 need, estimated = SW.Solver.LearnRank(r, opts)
             end
+            local src = r[8]
             local row = {
                 spell = spell, item = r[2], need = need, estimated = estimated or nil,
                 colour = SW.Solver.Color(r[5], r[6], rank),
-                seen = db.trainerSeen[spell] or nil,
+                source = src,
+                note = LEARN_SOURCE[src] or (type(src) == "string" and src:match("^s:(.+)$")
+                    and ("%s only"):format(src:match("^s:(.+)$"))) or nil,
             }
-            local into = (need <= rank and now) or (need <= rank + SOON and soon) or later
+            local into = need <= rank and now or later
             into[#into + 1] = row
         end
     end
@@ -623,9 +638,8 @@ function Plan.Trainable(prof)
         return a.spell < b.spell
     end
     table.sort(now, bySkill)
-    table.sort(soon, bySkill)
     table.sort(later, bySkill)
-    return { now = now, soon = soon, later = later, rank = rank }
+    return { now = now, later = later, rank = rank }
 end
 
 -- The step the player is following, remembered per character and profession (so it survives a /reload).

@@ -1109,15 +1109,14 @@ end
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
 -- page is for the route, and this is a reference list you go and open.
 local TRAIN_GROUPS = {
-    { key = "now",   label = "Can learn now" },
-    { key = "soon",  label = "Coming soon" },
-    { key = "later", label = "Not yet" },
+    { key = "now",   label = "Learnable now" },
+    { key = "later", label = "Needs more skill" },
 }
 
 local function DrawTrainable(f, prof, c, y, n)
     local list = Plan.Trainable(prof)
     if not list then return y, n end
-    local total = #list.now + #list.soon + #list.later
+    local total = #list.now + #list.later
     if total == 0 then return y, n end
 
     local open = SW.Settings().trainableOpen and true or false
@@ -1127,13 +1126,12 @@ local function DrawTrainable(f, prof, c, y, n)
     head.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up"
         or "Interface\\Buttons\\UI-PlusButton-Up")
     head.range:SetText("")
-    head.text:SetText(("|cffffd100What a trainer teaches|r  |cff8a8a8a%d you have not learned|r")
-        :format(total))
+    head.text:SetText(("|cffffd100Not learned|r  |cff8a8a8a%d|r"):format(total))
     head.right:SetText("")
     head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
-        tt:AddLine("What a trainer teaches", 1, 0.82, 0.3)
-        tt:AddLine("Everything this profession's trainers will teach you that you do not already "
-            .. "know, and the skill each one needs. Click to open or close.", 0.85, 0.85, 0.85, true)
+        tt:AddLine("Not learned", 1, 0.82, 0.3)
+        tt:AddLine("Everything in this profession you cannot make yet, and the skill each one "
+            .. "needs. Click to open or close.", 0.85, 0.85, 0.85, true)
         tt:AddLine(("|cffff8040*?|r marks a skill we have estimated. Visit the trainer once and "
             .. "Skillwright uses the number the game gives."), 0.6, 0.6, 0.6, true)
     end
@@ -1171,12 +1169,14 @@ local function DrawTrainable(f, prof, c, y, n)
                 local r = RouteRow(f, n)
                 r.bg:Hide()
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
-                r.range:SetText("")
+                -- the requirement on the left, where the list the user showed puts it
+                r.range:SetText(("|cff%s%d|r"):format(
+                    row.need > list.rank and "ff4040" or "ffffff", row.need))
                 -- coloured the way the trade window colours it at your skill: a recipe that is
                 -- already grey teaches you nothing, and that is worth seeing before the walk
                 r.text:SetText(U.Colored(row.colour, U.RecipeName(row.spell)))
-                r.right:SetText(("%s|cff%s%d|r"):format(row.estimated and "|cffff8040*?|r " or "",
-                    row.need > list.rank and "ff4040" or "ffffff", row.need))
+                r.right:SetText((row.estimated and "|cffff8040*?|r " or "")
+                    .. (row.note and ("|cff8a8a8a%s|r"):format(row.note) or ""))
                 r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
                 r:SetScript("OnMouseUp", nil)
                 r:ClearAllPoints()

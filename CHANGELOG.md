@@ -11,13 +11,12 @@
 
 ### The route
 
-- **What a trainer teaches, on the Route tab.** A collapsed section you can open: everything this
-  profession's trainers will teach you that you do not already know, in the three groups the
-  class trainer uses - what you can learn now, what is coming soon, and what is not yet within
-  reach - with the skill each one needs, red when it is out of reach, and each name in the colour
-  the trade window would give it at your skill. A skill we have estimated is marked; visit the
-  trainer once and the real number replaces it.
-
+- **Everything you have not learned, on the Route tab.** A collapsed section you can open: every
+  recipe in this profession you cannot make yet, split into what you have the skill for and what
+  you do not, with the skill each one needs on the left and each name in the colour the trade
+  window would give it. Most of Forever's recipes come from a drop, so the ones you have the
+  skill for but no recipe for say so rather than pretending you can go and learn them. A skill we
+  have estimated is marked; visit the trainer once and the real number replaces it.
 - **The plan now runs the whole way to 300**, with the trainer visits in it as steps of their own -
   Journeyman at 75, Expert at 150, Artisan at 225. Before, it stopped at whatever your current rank
   cap was, so a smith at 81 saw two steps and a footnote. When the next thing to do is walk to a
