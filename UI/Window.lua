@@ -1084,9 +1084,15 @@ local function BuildRoute(f)
     win.routePage = f
 end
 
-local function RouteRow(f, i)
+-- `numberFirst` puts the skill column ahead of the icon, which is what a column you sort by wants.
+-- Applied on every call, not once at build: these rows are pooled, and the same frame is a list row
+-- on one pass and a route step on the next.
+local function RouteRow(f, i, numberFirst)
     local r = f.rows[i]
-    if r then return r end
+    if r then
+        r:Layout(numberFirst)
+        return r
+    end
     r = LineRow(f.c, f.rows, i)
     r:SetHeight(ROW)
     r.icon:SetSize(22, 22)
@@ -1097,13 +1103,36 @@ local function RouteRow(f, i)
     -- reason, and nobody noticed because a missing atlas simply draws nothing.
     r.bg:SetColorTexture(1, 1, 1, 0.05)
     r.range = U.Text(r, "GameFontNormalSmall")
-    r.range:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
     r.range:SetWidth(52)
+    function r:Layout(numberFirst)
+        self.icon:ClearAllPoints()
+        self.range:ClearAllPoints()
+        self.text:ClearAllPoints()
+        if numberFirst then
+            self.range:SetWidth(26)
+            self.range:SetJustifyH("RIGHT")
+            self.range:SetPoint("LEFT", 2, 0)
+            self.icon:SetPoint("LEFT", self.range, "RIGHT", 6, 0)
+            self.text:SetPoint("LEFT", self.icon, "RIGHT", 6, 0)
+        else
+            self.range:SetWidth(52)
+            self.range:SetJustifyH("LEFT")
+            self.icon:SetPoint("LEFT", 2, 0)
+            self.range:SetPoint("LEFT", self.icon, "RIGHT", 6, 0)
+            self.text:SetPoint("LEFT", self.range, "RIGHT", 6, 0)
+        end
+        self.text:SetPoint("RIGHT", self.right, "LEFT", -6, 0)
+    end
+    r:Layout(numberFirst)
     r.text:ClearAllPoints()
     r.text:SetPoint("LEFT", r.range, "RIGHT", 4, 0)
     r.text:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     return r
 end
+
+-- A list is a column of facts, not a page of cards: these rows sit closer together than the
+-- route's own steps, which are things to go and do.
+local TIGHT = 18
 
 -- WHAT'S TRAINABLE, in the three groups the class trainer's own panel uses: what you can learn
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
@@ -1159,31 +1188,35 @@ local function DrawTrainable(f, prof, c, y, n)
             h.tipItem, h.tipSpell, h.tipExtra = nil, nil, nil
             h:SetScript("OnMouseUp", nil)
             h:ClearAllPoints()
-            h:SetPoint("TOPLEFT", c, "TOPLEFT", 8, y)
+            h:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y)
             h:SetPoint("RIGHT", c, "RIGHT", -2, 0)
             h:Show()
-            y = y - ROW - 1
+            y = y - TIGHT - 2
 
             for _, row in ipairs(rows) do
+                local reach = row.need <= list.rank
                 n = n + 1
-                local r = RouteRow(f, n)
+                local r = RouteRow(f, n, true)
                 r.bg:Hide()
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
-                -- the requirement on the left, where the list the user showed puts it
-                r.range:SetText(("|cff%s%d|r"):format(
-                    row.need > list.rank and "ff4040" or "ffffff", row.need))
-                -- coloured the way the trade window colours it at your skill: a recipe that is
-                -- already grey teaches you nothing, and that is worth seeing before the walk
-                r.text:SetText(U.Colored(row.colour, U.RecipeName(row.spell)))
+                -- The skill it takes to learn, first, because that is what the list is sorted by.
+                r.range:SetText(("|cff%s%d|r"):format(reach and "ffd100" or "8a8a8a", row.need))
+                -- ONE SCALE. This used to colour the name by how much skill MAKING it would give,
+                -- which is a different number from the one in the column beside it and answers a
+                -- question nobody has while looking at things they cannot make yet. The colour
+                -- says whether the row can be acted on: white go, grey you need the recipe first,
+                -- grey-red not enough skill.
+                local tint = (not reach and "ff6a6a6a") or (row.note and "ffb0b0b0") or "ffffffff"
+                r.text:SetText(("|c%s%s|r"):format(tint, U.RecipeName(row.spell)))
                 r.right:SetText((row.estimated and "|cffff8040*?|r " or "")
                     .. (row.note and ("|cff8a8a8a%s|r"):format(row.note) or ""))
                 r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
                 r:SetScript("OnMouseUp", nil)
                 r:ClearAllPoints()
-                r:SetPoint("TOPLEFT", c, "TOPLEFT", 16, y)
+                r:SetPoint("TOPLEFT", c, "TOPLEFT", 12, y)
                 r:SetPoint("RIGHT", c, "RIGHT", -2, 0)
                 r:Show()
-                y = y - ROW - 1
+                y = y - TIGHT
             end
         end
     end
