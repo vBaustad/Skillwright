@@ -1184,17 +1184,26 @@ local function DrawTrainable(f, prof, c, y, n)
     n = n + 1
     local head = RouteRow(f, n)
     head.bg:Hide()
-    head.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up"
-        or "Interface\\Buttons\\UI-PlusButton-Up")
+    head.icon:SetTexture(nil)
+    if head.rarity then head.rarity:Hide() end
     head.range:SetText("")
     -- the headline counts what is still worth something; the dead ones are counted in their
     -- own group, where the number is a fact rather than a promise
-    head.text:SetText("|cffffd100Still worth learning|r")
+    head.text:SetText(("%s |cffffd100Still worth learning|r"):format(open and "-" or "+"))
     head.right:SetText(("|cff8a8a8a%d|r"):format(total))
     head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
-        tt:AddLine("Not learned", 1, 0.82, 0.3)
-        tt:AddLine("Everything in this profession you cannot make yet, and the skill each one "
-            .. "needs. Click to open or close.", 0.85, 0.85, 0.85, true)
+        tt:AddLine("Still worth learning", 1, 0.82, 0.3)
+        tt:AddLine("Everything in this profession you cannot make yet. Click to open or close.",
+            0.85, 0.85, 0.85, true)
+        tt:AddLine(" ")
+        tt:AddLine("|cff8a8a8askill|r on the left: what you need to learn it.", 0.85, 0.85, 0.85, true)
+        tt:AddLine("|cff8a8a8agrey at|r on the right: the skill it stops giving you anything at. "
+            .. "The further that is from where you are, the longer it keeps paying.",
+            0.85, 0.85, 0.85, true)
+        tt:AddLine(("The name is the colour the trade window gives it at your skill: %s always, "
+            .. "%s usually, %s sometimes, %s never."):format(
+            U.Colored("orange", "orange"), U.Colored("yellow", "yellow"),
+            U.Colored("green", "green"), U.Colored("grey", "grey")), 0.85, 0.85, 0.85, true)
         tt:AddLine(("|cffff8040*?|r marks a skill we have estimated. Visit the trainer once and "
             .. "Skillwright uses the number the game gives."), 0.6, 0.6, 0.6, true)
     end
@@ -1208,6 +1217,25 @@ local function DrawTrainable(f, prof, c, y, n)
     head:Show()
     y = y - ROW - 1
     if not open then return y - 4, n end
+
+    -- WHAT THE COLUMNS ARE. Two numbers and a colour with nothing naming them is a puzzle, and
+    -- the player said so: "jeg vet ikke hva fargen paa item betyr, hva tallet til venstre betyr
+    -- og tallet til hoyre betyr."
+    n = n + 1
+    local cols = RouteRow(f, n, true)
+    cols.bg:Hide()
+    cols.icon:SetTexture(nil)
+    if cols.rarity then cols.rarity:Hide() end
+    cols.range:SetText("|cff8a8a8askill|r")
+    cols.text:SetText("|cff8a8a8arecipe|r")
+    cols.right:SetText("|cff8a8a8agrey at|r")
+    cols.tipItem, cols.tipSpell, cols.tipExtra = nil, nil, nil
+    cols:SetScript("OnMouseUp", nil)
+    cols:ClearAllPoints()
+    cols:SetPoint("TOPLEFT", c, "TOPLEFT", 12, y)
+    cols:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+    cols:Show()
+    y = y - TIGHT
 
     local groupOpen = SW.Settings().trainGroupOpen or {}
     for _, g in ipairs(TRAIN_GROUPS) do
@@ -2244,6 +2272,11 @@ local function Build()
         inset:SetPoint("TOPLEFT", 0, 0)
         inset:SetPoint("BOTTOMRIGHT", 0, 0)
         inset:SetFrameLevel(math.max(0, win.body:GetFrameLevel() - 1))
+        -- The template brings an opaque fill with it, and it was sitting on the profession drawing.
+        -- We want its EDGES - the nine-slice - and nothing else.
+        for _, fill in ipairs({ inset.Bg, inset.bg, inset.Center, inset.Background }) do
+            if fill and fill.Hide then fill:Hide() end
+        end
         win.inset = inset
     else
         -- no template in this client: keep the texture rather than hand-draw a copy of Blizzard's

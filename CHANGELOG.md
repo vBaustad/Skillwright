@@ -84,6 +84,9 @@
 
 ### The window
 
+- **The list says what its columns are.** The skill you need on the left, the skill it stops
+  helping at on the right, and the name in the colour the trade window gives it - all three
+  named, with the rest on the hover.
 - **The not-learned list opens instantly.** It used to build four hundred rows the moment you
   opened it, and ask the client for every name, icon and item quality at once, so it appeared
   wrong and settled a second later. Each group opens on its own now, and they all start shut.
