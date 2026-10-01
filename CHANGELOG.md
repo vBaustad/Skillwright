@@ -84,6 +84,9 @@
 
 ### The window
 
+- **The window stops jumping a moment after it opens.** The "auction prices are out of date"
+  strip was measured before anything had told it how wide it was, so it drew one line tall and
+  grew to two a frame later, pushing everything below it down. Nothing was loading.
 - **The list's rows no longer sit on each other.** They were taller than the space between them,
   so every row overlapped the next and every icon leaned into the line below - worst in the first
   second after opening, before the icons had loaded and given the eye something to lock onto.

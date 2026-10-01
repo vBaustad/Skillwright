@@ -1222,10 +1222,11 @@ local function DrawTrainable(f, prof, c, y, n)
         SW.RefreshWindow()
     end)
     head:ClearAllPoints()
+    head:SetHeight(HEADER)
     head:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
     head:SetPoint("RIGHT", c, "RIGHT", -2, 0)
     head:Show()
-    y = y - ROW - 1
+    y = y - HEADER
     if not open then return y - 4, n end
 
     -- WHAT THE COLUMNS ARE. Two numbers and a colour with nothing naming them is a puzzle, and
@@ -1247,15 +1248,16 @@ local function DrawTrainable(f, prof, c, y, n)
     cols:Show()
     y = y - TIGHT
 
-    local groupOpen = SW.Settings().trainGroupOpen or {}
+    local groupOpen, drawnGroups = SW.Settings().trainGroupOpen or {}, 0
     for _, g in ipairs(TRAIN_GROUPS) do
         local rows = list[g.key]
         if #rows > 0 then
             local shownGroup = groupOpen[g.key] and true or false
             -- A header is not a row with a different colour. Full width, a solid bar, the label
             -- at the left and the count at the far right, and air above it so the groups read as
-            -- groups rather than as a run of lines.
-            y = y - 6
+            -- groups - but not above the first one, which already has the column heading over it.
+            if drawnGroups > 0 then y = y - 6 end
+            drawnGroups = drawnGroups + 1
             n = n + 1
             local h = RouteRow(f, n)
             h.bg:Show()
@@ -1850,9 +1852,13 @@ local function UpdatePriceNote()
     if text then
         if changed then
             note.text:SetText(text)
+            -- WIDTH FIRST, THEN MEASURE. A FontString reports its UNWRAPPED height until something
+            -- has told it how wide it is, so this used to draw the strip one line tall, then
+            -- measure again a frame later and grow it - and the whole panel below jumped down.
+            -- That is what read as "it loads and then shows properly". The card's own place()
+            -- helper has done it in this order for months; this never learned.
+            note.text:SetWidth(win:GetWidth() - 40)
             note:SetHeight(math.ceil(note.text:GetStringHeight()) + 10)
-            -- wrapped height is only right once the strip has its width
-            C_Timer.After(0, function() note:SetHeight(math.ceil(note.text:GetStringHeight()) + 10) end)
         end
         note:Show()
         win.body:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -6)
