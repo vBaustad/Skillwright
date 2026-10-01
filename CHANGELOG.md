@@ -152,6 +152,11 @@
 
 ### Fixes
 
+- **The Route tab is readable.** Eight paragraphs of notes sat under the route; what is left is
+  the total and a legend for the markers actually on screen, with the reasons on a hover.
+- **Trainer steps can be read.** "Train Expert Blacksmithing (..." was cut off and had no hover,
+  so there was no way to see the rest of it. It answers a hover now.
+
 - **Training pet skills works again.** Skillwright reads what a trainer teaches, and to see the
   services your own filters hide it turns those filters on for a moment. It was doing that at
   EVERY trainer - class, pet, riding - and changing a filter from an addon makes the client refuse

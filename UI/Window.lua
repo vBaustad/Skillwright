@@ -327,9 +327,16 @@ local function LineRow(parent, pool, i)
     hl:SetAllPoints()
     hl:SetAtlas("Options_List_Hover")
     r:SetScript("OnEnter", function(self)
-        if not self.tipItem and not self.tipSpell then return end
+        -- tipExtra alone is enough. A "Train Expert Blacksmithing" row has no item and no spell,
+        -- only the function that writes its lines, so this returned before showing anything - and
+        -- that row is the one whose text is cut off, which left no way at all to read it.
+        if not (self.tipItem or self.tipSpell or self.tipExtra) then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self.tipItem and self.tipItem > 0 then GameTooltip:SetItemByID(self.tipItem) else GameTooltip:SetSpellByID(self.tipSpell) end
+        if self.tipItem and self.tipItem > 0 then
+            GameTooltip:SetItemByID(self.tipItem)
+        elseif self.tipSpell then
+            GameTooltip:SetSpellByID(self.tipSpell)
+        end
         if self.tipExtra then self.tipExtra(GameTooltip) end
         GameTooltip:Show()
     end)
@@ -1072,6 +1079,9 @@ local function BuildRoute(f)
     f.sf, f.c = sf, sf.child
     f.rows = {}
     f.note = U.Text(sf.child, "GameFontHighlightSmall", "LEFT", true)
+    -- the only handle on the Route page from outside this file. Like win.card, which existed for
+    -- the same reason: without one the page cannot be asked anything.
+    win.routePage = f
 end
 
 local function RouteRow(f, i)
@@ -1179,48 +1189,78 @@ local function RefreshRoute(f)
             y = y - ROW - 1
         end
     end
-    local notes = { "|cffff8040*|r not learned yet.  |cff8a8a8aat least|r = some materials have no known price." }
-    -- Only say it when a step on the page actually rests on a guess.
-    for _, s in ipairs(route.steps) do
-        if s.learnEstimated and not SW.Prof.Knows(prof, s.spell) and s.to > rank then
-            notes[#notes + 1] = "|cffff8040*?|r the skill it needs is our estimate: the game data does not "
-                .. "carry it for trainer recipes. Open the trainer once and Skillwright uses the real number."
-            break
-        end
-    end
-    -- Where the plan ends, and why that number and not another one.
-    local ceiling = SW.Ceiling(prof)
-    notes[#notes + 1] = ceiling > SW.MAX_RANK
-        and ("Planned to |cffffd100%d|r: a character here has reached that, past the 300 the game data stops at.")
-            :format(ceiling)
-        or "Planned to |cffffd100300|r, the highest skill any recipe in this build needs."
-    local reach, total, purse = Plan.GoldReach(prof)
-    if reach and total and purse and reach < route.to then
-        notes[#notes + 1] = ("The rest costs about |cffffd100%s|r and you have |cffffd100%s|r: enough to "
-            .. "reach about |cffffd100%d|r."):format(SW.MoneyShort(total), SW.MoneyShort(purse), reach)
-    end
-    if route.pricedTo and route.pricedTo > route.from and route.pricedTo < route.to then
-        notes[#notes + 1] = ("Planned on price up to |cffffd100%d|r. Nothing above that has a price, so "
-            .. "from there it is the shortest route."):format(route.pricedTo)
-    end
-    if route.gapAt then
-        notes[#notes + 1] = ("The route ends at |cffffd100%d|r: no trainer recipe gives skill past "
-            .. "that. Most of Forever's new recipes come from recipe items whose drops and vendors "
-            .. "aren't known yet, so the plan can only use one once you have learned it. Any of "
-            .. "these would keep you going:"):format(route.gapAt)
-    end
-    -- What the rest of it comes to, and what the other button would cost: both about the ROUTE,
-    -- and both used to sit on the Now card, whose job is the next thing to do.
+    -- WHAT STAYS ON THE PAGE, AND WHAT YOU GO AND ASK FOR. This was eight notes stacked under
+    -- the route: a legend, the estimate marker explained, where the plan ends and why, the cost
+    -- against your purse, how far prices reach, why the route stops, the remaining total, and
+    -- which mode you are on. The fourth time a page here has been called too much to read.
+    --
+    -- The total is what someone is looking for; the legend only earns its line when a marker is
+    -- actually on screen above it. Every reason moved to the hover on the total.
+    local notes, why = {}, {}
+
     local restCrafts, restCost = Plan.Remaining(prof)
     if restCrafts > 0 then
-        notes[#notes + 1] = ("The rest is about |cffffd100%d|r crafts and |cffffd100%s|r, skill %d to %d.")
-            :format(restCrafts, SW.MoneyShort(restCost), rank, route.to)
+        notes[#notes + 1] = ("|cff8a8a8aAbout|r |cffffd100%d|r |cff8a8a8acrafts and|r |cffffd100%s|r "
+            .. "|cff8a8a8aleft, skill %d to %d.|r"):format(restCrafts, SW.MoneyShort(restCost), rank, route.to)
+    end
+
+    -- the legend, only for the markers that are really up there
+    local anyUnlearned, anyEstimated = false, false
+    for _, st in ipairs(route.steps) do
+        if st.to > rank and not SW.Prof.Knows(prof, st.spell) then
+            anyUnlearned = true
+            if st.learnEstimated then anyEstimated = true end
+        end
+    end
+    local marks = {}
+    if anyUnlearned then marks[#marks + 1] = "|cffff8040*|r not learned yet" end
+    if anyEstimated then marks[#marks + 1] = "|cffff8040*?|r skill it needs is our estimate" end
+    if route.pricedTo or (restCost or 0) > 0 then
+        marks[#marks + 1] = "|cff8a8a8aat least|r = some materials have no price"
+    end
+    if #marks > 0 then notes[#notes + 1] = "|cff8a8a8a" .. table.concat(marks, "   ") .. "|r" end
+
+    -- and the reasons, for whoever wants them
+    if anyEstimated then
+        why[#why + 1] = "The skill a trainer recipe needs is not in the game data, so some of these "
+            .. "numbers are ours. Open the trainer once and Skillwright uses the real one."
+    end
+    local ceiling = SW.Ceiling(prof)
+    why[#why + 1] = ceiling > SW.MAX_RANK
+        and ("Planned to %d: a character here has reached that, past the 300 the game data stops at.")
+            :format(ceiling)
+        or "Planned to 300, the highest skill any recipe in this build needs."
+    local reach, total, purse = Plan.GoldReach(prof)
+    if reach and total and purse and reach < route.to then
+        why[#why + 1] = ("The rest costs about %s and you have %s: enough to reach about %d.")
+            :format(SW.MoneyShort(total), SW.MoneyShort(purse), reach)
+    end
+    if route.pricedTo and route.pricedTo > route.from and route.pricedTo < route.to then
+        why[#why + 1] = ("Planned on price up to %d. Nothing above that has a price, so from there "
+            .. "it is the shortest route."):format(route.pricedTo)
+    end
+    if route.gapAt then
+        notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a. Any of these "
+            .. "would carry it further:|r"):format(route.gapAt)
+        why[#why + 1] = ("No trainer recipe gives skill past %d. Most of Forever's new recipes come "
+            .. "from recipe items whose drops and vendors aren't known yet, so the plan can only use "
+            .. "one once you have learned it."):format(route.gapAt)
     end
     local trade = Plan.TradeOff(prof)
     if trade then
-        notes[#notes + 1] = ("You are on |cffffd100%s|r. %s"):format(
+        why[#why + 1] = ("You are on %s. %s"):format(
             SW.Settings().mode == "fast" and "Fastest" or "Cheapest", trade)
     end
+
+    f.note:SetScript("OnEnter", #why > 0 and function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("About this route", 1, 0.82, 0.3)
+        for _, line in ipairs(why) do GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true) end
+        GameTooltip:Show()
+    end or nil)
+    f.note:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.note:EnableMouse(#why > 0)
+
     f.note:SetText(table.concat(notes, "\n"))
     f.note:ClearAllPoints()
     f.note:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y - 8)
