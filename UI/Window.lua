@@ -1190,64 +1190,6 @@ local function DrawTrainable(f, prof, c, y, n)
     local total = #list.now + #list.recipe + #list.soon
     if total == 0 then return y, n end
 
-    local open = SW.Settings().trainableOpen and true or false
-    n = n + 1
-    local head = RouteRow(f, n)
-    head.bg:Hide()
-    head.icon:SetTexture(nil)
-    if head.rarity then head.rarity:Hide() end
-    head.range:SetText("")
-    -- the headline counts what is still worth something; the dead ones are counted in their
-    -- own group, where the number is a fact rather than a promise
-    head.text:SetText(("%s |cffffd100Still worth learning|r"):format(open and "-" or "+"))
-    head.right:SetText(("|cff8a8a8a%d|r"):format(total))
-    head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
-        tt:AddLine("Still worth learning", 1, 0.82, 0.3)
-        tt:AddLine("Everything in this profession you cannot make yet. Click to open or close.",
-            0.85, 0.85, 0.85, true)
-        tt:AddLine(" ")
-        tt:AddLine("|cff8a8a8askill|r on the left: what you need to learn it.", 0.85, 0.85, 0.85, true)
-        tt:AddLine("|cff8a8a8agrey at|r on the right: the skill it stops giving you anything at. "
-            .. "The further that is from where you are, the longer it keeps paying.",
-            0.85, 0.85, 0.85, true)
-        tt:AddLine(("The name is the colour the trade window gives it at your skill: %s always, "
-            .. "%s usually, %s sometimes, %s never."):format(
-            U.Colored("orange", "orange"), U.Colored("yellow", "yellow"),
-            U.Colored("green", "green"), U.Colored("grey", "grey")), 0.85, 0.85, 0.85, true)
-        tt:AddLine(("|cffff8040*?|r marks a skill we have estimated. Visit the trainer once and "
-            .. "Skillwright uses the number the game gives."), 0.6, 0.6, 0.6, true)
-    end
-    head:SetScript("OnMouseUp", function()
-        SW.Settings().trainableOpen = not SW.Settings().trainableOpen
-        SW.RefreshWindow()
-    end)
-    head:ClearAllPoints()
-    head:SetHeight(HEADER)
-    head:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
-    head:SetPoint("RIGHT", c, "RIGHT", -2, 0)
-    head:Show()
-    y = y - HEADER
-    if not open then return y - 4, n end
-
-    -- WHAT THE COLUMNS ARE. Two numbers and a colour with nothing naming them is a puzzle, and
-    -- the player said so: "jeg vet ikke hva fargen paa item betyr, hva tallet til venstre betyr
-    -- og tallet til hoyre betyr."
-    n = n + 1
-    local cols = RouteRow(f, n, true)
-    cols.bg:Hide()
-    cols.icon:SetTexture(nil)
-    if cols.rarity then cols.rarity:Hide() end
-    cols.range:SetText("|cff8a8a8askill|r")
-    cols.text:SetText("|cff8a8a8arecipe|r")
-    cols.right:SetText("|cff8a8a8agrey at|r")
-    cols.tipItem, cols.tipSpell, cols.tipExtra = nil, nil, nil
-    cols:SetScript("OnMouseUp", nil)
-    cols:ClearAllPoints()
-    cols:SetPoint("TOPLEFT", c, "TOPLEFT", 12, y)
-    cols:SetPoint("RIGHT", c, "RIGHT", -2, 0)
-    cols:Show()
-    y = y - TIGHT
-
     local groupOpen, drawnGroups = SW.Settings().trainGroupOpen or {}, 0
     for _, g in ipairs(TRAIN_GROUPS) do
         local rows = list[g.key]
@@ -1259,22 +1201,38 @@ local function DrawTrainable(f, prof, c, y, n)
             if drawnGroups > 0 then y = y - 6 end
             drawnGroups = drawnGroups + 1
             n = n + 1
-            local h = RouteRow(f, n)
+            local h = RouteRow(f, n, true)
             h.bg:Show()
             h.bg:SetColorTexture(0, 0, 0, 0.45)
             h.icon:SetTexture(nil)
             if h.rarity then h.rarity:Hide() end
             h.range:SetText("")
+            -- The column label lives here, in the one row that was always going to be drawn.
+            -- It used to have a bar of its own above a section heading that had a bar of its own,
+            -- which is three stacked bars before the first recipe.
+            h.range:SetText("|cff8a8a8askill|r")
             h.text:SetText(("%s |cffffd100%s|r"):format(shownGroup and "-" or "+", g.label))
             h.right:SetText(("|cff8a8a8a%d|r"):format(#rows))
-            h.tipItem, h.tipSpell, h.tipExtra = nil, nil, nil
+            h.tipExtra = function(tt)
+                tt:AddLine(g.label, 1, 0.82, 0.3)
+                tt:AddLine("|cff8a8a8askill|r on the left: what you need to learn it.",
+                    0.85, 0.85, 0.85, true)
+                tt:AddLine("The number on the right of each row is the skill it stops giving you "
+                    .. "anything at. The further that is from where you are, the longer it pays.",
+                    0.85, 0.85, 0.85, true)
+                tt:AddLine(("The name is the colour the trade window gives it: %s always, %s "
+                    .. "usually, %s sometimes, %s never."):format(
+                    U.Colored("orange", "orange"), U.Colored("yellow", "yellow"),
+                    U.Colored("green", "green"), U.Colored("grey", "grey")), 0.6, 0.6, 0.6, true)
+            end
+            h.tipItem, h.tipSpell = nil, nil
+            h:SetHeight(HEADER)
             h:SetScript("OnMouseUp", function()
                 local open = SW.Settings().trainGroupOpen
                 open[g.key] = not open[g.key] or nil
                 SW.RefreshWindow()
             end)
             h:ClearAllPoints()
-            h:SetHeight(HEADER)
             h:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
             h:SetPoint("RIGHT", c, "RIGHT", 0, 0)
             h:Show()
@@ -1324,7 +1282,10 @@ local function RefreshRoute(f)
     end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local y, n = -2, 0
-    y, n = DrawTrainable(f, prof, c, y, n)
+    -- HOW MUCH OF THE ROUTE TO DRAW. All of it pushed everything under it off the page, and the
+    -- list below went unseen. The steps that do not fit are named in a line rather than dropped.
+    local SHOW_STEPS = 8
+    local drawnSteps, skippedSteps = 0, 0
     local owned = Plan.OwnedTools()
     for _, row in ipairs(Plan.Rows(prof) or {}) do
         -- A trainer visit is a step of the route: it is the thing to do next when you reach that rank.
@@ -1356,7 +1317,12 @@ local function RefreshRoute(f)
             y = y - ROW - 1
         end
         local s = row.step
+        if s and s.to > rank and drawnSteps >= SHOW_STEPS then
+            skippedSteps = skippedSteps + 1
+            s = nil
+        end
         if s and s.to > rank then
+            drawnSteps = drawnSteps + 1
             -- tools this step needs that you don't have yet
             for _, t in ipairs(s.prereqs or {}) do
                 if not SW.Solver.HasTool(t.category, owned) then
@@ -1410,6 +1376,25 @@ local function RefreshRoute(f)
     if restCrafts > 0 then
         notes[#notes + 1] = ("|cff8a8a8aAbout|r |cffffd100%d|r |cff8a8a8acrafts and|r |cffffd100%s|r "
             .. "|cff8a8a8aleft, skill %d to %d.|r"):format(restCrafts, SW.MoneyShort(restCost), rank, route.to)
+    end
+
+    if skippedSteps > 0 then
+        n = n + 1
+        local more = RouteRow(f, n)
+        more.bg:Hide()
+        more.icon:SetTexture(nil)
+        if more.rarity then more.rarity:Hide() end
+        more.range:SetText("")
+        more.text:SetText(("|cff8a8a8a... and %d more steps, to skill %d|r")
+            :format(skippedSteps, route.to))
+        more.right:SetText("")
+        more.tipItem, more.tipSpell, more.tipExtra = nil, nil, nil
+        more:SetScript("OnMouseUp", nil)
+        more:ClearAllPoints()
+        more:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y)
+        more:SetPoint("RIGHT", c, "RIGHT", -4, 0)
+        more:Show()
+        y = y - ROW
     end
 
     -- the legend, only for the markers that are really up there
@@ -1468,6 +1453,10 @@ local function RefreshRoute(f)
     end or nil)
     f.note:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.note:EnableMouse(#why > 0)
+
+    -- The list goes here: under the steps, above the summary. The note is the last word on the
+    -- page and a reference list does not belong after it.
+    y, n = DrawTrainable(f, prof, c, y - 4, n)
 
     f.note:SetText(table.concat(notes, "\n"))
     f.note:ClearAllPoints()
