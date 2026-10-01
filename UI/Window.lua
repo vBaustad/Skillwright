@@ -1105,6 +1105,10 @@ local function RouteRow(f, i, numberFirst)
     r.range = U.Text(r, "GameFontNormalSmall")
     r.range:SetWidth(52)
     function r:Layout(numberFirst)
+        -- these rows are pooled: a frame that was a dark group header on one pass is an ordinary
+        -- row on the next, and must not keep the bar or the rarity border with it
+        self.bg:SetColorTexture(1, 1, 1, 0.05)
+        if self.rarity then self.rarity:Hide() end
         self.icon:ClearAllPoints()
         self.range:ClearAllPoints()
         self.text:ClearAllPoints()
@@ -1133,16 +1137,42 @@ end
 -- A list is a column of facts, not a page of cards: these rows sit closer together than the
 -- route's own steps, which are things to go and do.
 local TIGHT = 18
+local HEADER = 22
 
 -- WHAT'S TRAINABLE, in the three groups the class trainer's own panel uses: what you can learn
 -- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
 -- page is for the route, and this is a reference list you go and open.
+-- Four labels of the same shape: what you do about this group, in two or three words. They used
+-- to be "Learn at a trainer" / "Find the recipe" / "Not enough skill yet" / "Too late to help",
+-- which is four different kinds of phrase and reads as four unrelated ideas.
 local TRAIN_GROUPS = {
-    { key = "now",    label = "Learn at a trainer",  live = true },
-    { key = "recipe", label = "Find the recipe",     live = true },
-    { key = "soon",   label = "Not enough skill yet" },
-    { key = "dead",   label = "Too late to help",    dim = true },
+    { key = "now",    label = "Learn now",      live = true },
+    { key = "recipe", label = "Find the recipe", live = true },
+    { key = "soon",   label = "Not yet" },
+    { key = "dead",   label = "Outgrown",        dim = true },
 }
+
+-- An icon's border carries rarity, the way the game carries it everywhere else. That leaves the
+-- text free for craft difficulty, which is what a profession list is for - the two were fighting
+-- over one colour before, and I had swapped between them twice.
+local function RarityBorder(r, item)
+    if not r.rarity then
+        r.rarity = r:CreateTexture(nil, "BACKGROUND")
+        r.rarity:SetColorTexture(1, 1, 1, 1)
+    end
+    r.rarity:ClearAllPoints()
+    r.rarity:SetPoint("TOPLEFT", r.icon, "TOPLEFT", -1, 1)
+    r.rarity:SetPoint("BOTTOMRIGHT", r.icon, "BOTTOMRIGHT", 1, -1)
+    local q = item and item > 0 and C_Item and C_Item.GetItemQualityByID
+        and C_Item.GetItemQualityByID(item)
+    local c = q and q > 1 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[q]
+    if c then
+        r.rarity:SetColorTexture(c.r, c.g, c.b, 0.9)
+        r.rarity:Show()
+    else
+        r.rarity:Hide()          -- common and poor get no border, as in the bags
+    end
+end
 
 local function DrawTrainable(f, prof, c, y, n)
     local list = Plan.Trainable(prof)
@@ -1159,8 +1189,8 @@ local function DrawTrainable(f, prof, c, y, n)
     head.range:SetText("")
     -- the headline counts what is still worth something; the dead ones are counted in their
     -- own group, where the number is a fact rather than a promise
-    head.text:SetText(("|cffffd100Still worth learning|r  |cff8a8a8a%d|r"):format(total))
-    head.right:SetText("")
+    head.text:SetText("|cffffd100Still worth learning|r")
+    head.right:SetText(("|cff8a8a8a%d|r"):format(total))
     head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
         tt:AddLine("Not learned", 1, 0.82, 0.3)
         tt:AddLine("Everything in this profession you cannot make yet, and the skill each one "
@@ -1182,20 +1212,26 @@ local function DrawTrainable(f, prof, c, y, n)
     for _, g in ipairs(TRAIN_GROUPS) do
         local rows = list[g.key]
         if #rows > 0 then
+            -- A header is not a row with a different colour. Full width, a solid bar, the label
+            -- at the left and the count at the far right, and air above it so the groups read as
+            -- groups rather than as a run of lines.
+            y = y - 6
             n = n + 1
             local h = RouteRow(f, n)
             h.bg:Show()
+            h.bg:SetColorTexture(0, 0, 0, 0.45)
             h.icon:SetTexture(nil)
+            if h.rarity then h.rarity:Hide() end
             h.range:SetText("")
-            h.text:SetText(("|cffffd100%s|r  |cff8a8a8a%d|r"):format(g.label, #rows))
-            h.right:SetText("")
+            h.text:SetText(("|cffffd100%s|r"):format(g.label))
+            h.right:SetText(("|cff8a8a8a%d|r"):format(#rows))
             h.tipItem, h.tipSpell, h.tipExtra = nil, nil, nil
             h:SetScript("OnMouseUp", nil)
             h:ClearAllPoints()
-            h:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y)
-            h:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+            h:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
+            h:SetPoint("RIGHT", c, "RIGHT", 0, 0)
             h:Show()
-            y = y - TIGHT - 2
+            y = y - HEADER
 
             for _, row in ipairs(rows) do
                 local reach = row.need <= list.rank
@@ -1203,6 +1239,7 @@ local function DrawTrainable(f, prof, c, y, n)
                 local r = RouteRow(f, n, true)
                 r.bg:Hide()
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
+                RarityBorder(r, row.item)
                 -- The skill it takes to learn, first, because that is what the list is sorted by.
                 r.range:SetText(("|cff%s%d|r"):format(reach and "ffd100" or "8a8a8a", row.need))
                 -- THE DIFFICULTY COLOUR, because in a profession list that is the information:
