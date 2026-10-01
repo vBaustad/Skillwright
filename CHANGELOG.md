@@ -152,6 +152,13 @@
 
 ### Fixes
 
+- **Training pet skills works again.** Skillwright reads what a trainer teaches, and to see the
+  services your own filters hide it turns those filters on for a moment. It was doing that at
+  EVERY trainer - class, pet, riding - and changing a filter from an addon makes the client refuse
+  the Train button afterwards and tell you to disable your addons. It was not an error anyone
+  could report, because nothing errored. It now only touches a trainer that teaches a profession
+  it plans for, and only reads the rest.
+
 - **Opening Mining, Herbalism or Fishing now gets the guide out of the way.** It used to sit there
   showing the last crafting profession's route beside a window it has nothing to do with. If the
   guide opened itself alongside a profession window it now closes with one it cannot plan; if you

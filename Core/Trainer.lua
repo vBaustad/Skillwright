@@ -290,6 +290,16 @@ local function Scan()
     Read()
     if deepDone or SW.Settings().deepTrainerScan == false then return end
     deepDone = true
+    -- NOT OUR TRAINER, NOT OUR FILTERS. TRAINER_SHOW fires for every trainer there is - class,
+    -- pet, riding - and changing a filter from addon code marks that trainer's service list as
+    -- addon-touched. The Train button runs through a secure path which then refuses, and the
+    -- player is told an action was blocked and to disable their addons. It is not a Lua error,
+    -- so it never reaches BugGrabber either; a tester hit it trying to train pet skills.
+    --
+    -- Read() has already decided whether this trainer teaches a profession we plan, by matching
+    -- its services against our own recipe data. A pet trainer matches nothing, so T.prof is nil.
+    -- Reading a trainer is harmless; altering one is not, so only ours is ever altered.
+    if not T.prof then return end
     if not OpenAllFilters() then return end       -- already all visible: the read above was the deep one
     C_Timer.After(0.05, function()
         Read()
