@@ -585,6 +585,49 @@ function Plan.Orange(prof, rank, to)
     return list
 end
 
+-- WHAT A TRAINER WILL TEACH YOU, in the three groups the class trainer uses: what you can learn
+-- standing there, what is close, and what is a long way off. Recipes you already know are left
+-- out - the player said it plainly: "jeg bryr meg ikke om det jeg allerede har laert."
+--
+-- Nothing is scanned for this. The requirement comes from db.learnRanks when a trainer has been
+-- visited, from the recipe data when it carries one, and otherwise from Solver.LearnRank, which is
+-- our estimate and is marked as one.
+local SOON = 25        -- "coming soon" is the next 25 skill: about one trainer visit away
+
+function Plan.Trainable(prof)
+    local data = SW.Data.professions[prof]
+    if not data then return nil end
+    local rank = math.max(1, SW.Prof.Rank(prof))
+    local opts = Plan.Options(prof, rank)
+    local db = SW.DB()
+    local now, soon, later = {}, {}, {}
+    for _, r in ipairs(data[2]) do
+        local spell = r[1]
+        -- only what a TRAINER teaches, and only what you cannot already do
+        if r[8] == "t" and not SW.Prof.Knows(prof, spell) then
+            local need, estimated = db.learnRanks[spell], false
+            if not need or need <= 0 then
+                need, estimated = SW.Solver.LearnRank(r, opts)
+            end
+            local row = {
+                spell = spell, item = r[2], need = need, estimated = estimated or nil,
+                colour = SW.Solver.Color(r[5], r[6], rank),
+                seen = db.trainerSeen[spell] or nil,
+            }
+            local into = (need <= rank and now) or (need <= rank + SOON and soon) or later
+            into[#into + 1] = row
+        end
+    end
+    local function bySkill(a, b)
+        if a.need ~= b.need then return a.need < b.need end
+        return a.spell < b.spell
+    end
+    table.sort(now, bySkill)
+    table.sort(soon, bySkill)
+    table.sort(later, bySkill)
+    return { now = now, soon = soon, later = later, rank = rank }
+end
+
 -- The step the player is following, remembered per character and profession (so it survives a /reload).
 -- A guide that changes its mind while you follow it is worse than one that is slightly suboptimal, so a
 -- step is only given up when it stops giving skill, when it is finished, or when the player says so.

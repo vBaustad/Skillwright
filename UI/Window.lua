@@ -1105,6 +1105,91 @@ local function RouteRow(f, i)
     return r
 end
 
+-- WHAT'S TRAINABLE, in the three groups the class trainer's own panel uses: what you can learn
+-- standing at the trainer, what is close, and what is a long way off. Collapsed by default - the
+-- page is for the route, and this is a reference list you go and open.
+local TRAIN_GROUPS = {
+    { key = "now",   label = "Can learn now" },
+    { key = "soon",  label = "Coming soon" },
+    { key = "later", label = "Not yet" },
+}
+
+local function DrawTrainable(f, prof, c, y, n)
+    local list = Plan.Trainable(prof)
+    if not list then return y, n end
+    local total = #list.now + #list.soon + #list.later
+    if total == 0 then return y, n end
+
+    local open = SW.Settings().trainableOpen and true or false
+    n = n + 1
+    local head = RouteRow(f, n)
+    head.bg:Hide()
+    head.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up"
+        or "Interface\\Buttons\\UI-PlusButton-Up")
+    head.range:SetText("")
+    head.text:SetText(("|cffffd100What a trainer teaches|r  |cff8a8a8a%d you have not learned|r")
+        :format(total))
+    head.right:SetText("")
+    head.tipItem, head.tipSpell, head.tipExtra = nil, nil, function(tt)
+        tt:AddLine("What a trainer teaches", 1, 0.82, 0.3)
+        tt:AddLine("Everything this profession's trainers will teach you that you do not already "
+            .. "know, and the skill each one needs. Click to open or close.", 0.85, 0.85, 0.85, true)
+        tt:AddLine(("|cffff8040*?|r marks a skill we have estimated. Visit the trainer once and "
+            .. "Skillwright uses the number the game gives."), 0.6, 0.6, 0.6, true)
+    end
+    head:SetScript("OnMouseUp", function()
+        SW.Settings().trainableOpen = not SW.Settings().trainableOpen
+        SW.RefreshWindow()
+    end)
+    head:ClearAllPoints()
+    head:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
+    head:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+    head:Show()
+    y = y - ROW - 1
+    if not open then return y - 4, n end
+
+    for _, g in ipairs(TRAIN_GROUPS) do
+        local rows = list[g.key]
+        if #rows > 0 then
+            n = n + 1
+            local h = RouteRow(f, n)
+            h.bg:Show()
+            h.icon:SetTexture(nil)
+            h.range:SetText("")
+            h.text:SetText(("|cffffd100%s|r  |cff8a8a8a%d|r"):format(g.label, #rows))
+            h.right:SetText("")
+            h.tipItem, h.tipSpell, h.tipExtra = nil, nil, nil
+            h:SetScript("OnMouseUp", nil)
+            h:ClearAllPoints()
+            h:SetPoint("TOPLEFT", c, "TOPLEFT", 8, y)
+            h:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+            h:Show()
+            y = y - ROW - 1
+
+            for _, row in ipairs(rows) do
+                n = n + 1
+                local r = RouteRow(f, n)
+                r.bg:Hide()
+                r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
+                r.range:SetText("")
+                -- coloured the way the trade window colours it at your skill: a recipe that is
+                -- already grey teaches you nothing, and that is worth seeing before the walk
+                r.text:SetText(U.Colored(row.colour, U.RecipeName(row.spell)))
+                r.right:SetText(("%s|cff%s%d|r"):format(row.estimated and "|cffff8040*?|r " or "",
+                    row.need > list.rank and "ff4040" or "ffffff", row.need))
+                r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
+                r:SetScript("OnMouseUp", nil)
+                r:ClearAllPoints()
+                r:SetPoint("TOPLEFT", c, "TOPLEFT", 16, y)
+                r:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+                r:Show()
+                y = y - ROW - 1
+            end
+        end
+    end
+    return y - 4, n
+end
+
 local function RefreshRoute(f)
     local prof = win.prof
     local route = Plan.Route(prof)
@@ -1117,6 +1202,7 @@ local function RefreshRoute(f)
     end
     local rank = math.max(1, SW.Prof.Rank(prof))
     local y, n = -2, 0
+    y, n = DrawTrainable(f, prof, c, y, n)
     local owned = Plan.OwnedTools()
     for _, row in ipairs(Plan.Rows(prof) or {}) do
         -- A trainer visit is a step of the route: it is the thing to do next when you reach that rank.
