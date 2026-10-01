@@ -225,7 +225,8 @@ local DEFAULTS = {
         -- profession window, and by nothing else: closing the profession window, or Escape, is
         -- the window going away rather than a decision about the guide.
         guideClosed = false,
-        trainableOpen = false,   -- the "what a trainer teaches" list on the Route page
+        trainableOpen = false,   -- the "what a trainer teaches" list on the Route page
+
         maxPriceAge = 3,         -- days before our own auction scan counts as stale (and is ignored)
         preferVendor = true,     -- favour recipes whose materials all come from a vendor
         useOwned = true,         -- count materials already in the bags or bank as (nearly) free
