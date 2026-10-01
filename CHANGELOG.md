@@ -90,6 +90,11 @@
 - **The list's rows no longer sit on each other.** They were taller than the space between them,
   so every row overlapped the next and every icon leaned into the line below - worst in the first
   second after opening, before the icons had loaded and given the eye something to lock onto.
+- **Each row says three things, one per column.** The skill you need to learn it, coloured the way
+  the trade window colours the recipe - orange down to grey - so you can see what it is worth at a
+  glance; the name in the item's own rarity colour; and the level you need to use what it makes.
+- **The Route tab no longer lists the same recipes twice.** The section at the bottom offering
+  recipes that would carry the route further was a short version of the list now sitting above it.
 - **The list says what its columns are.** The skill you need on the left, the skill it stops
   helping at on the right, and the name in the colour the trade window gives it - all three
   named, with the rest on the hover.

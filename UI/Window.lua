@@ -1245,18 +1245,23 @@ local function DrawTrainable(f, prof, c, y, n)
                 r.bg:Hide()
                 r.icon:SetTexture(U.RecipeIcon(row.item, row.spell))
                 RarityBorder(r, row.item)
-                -- The skill it takes to learn, first, because that is what the list is sorted by.
-                r.range:SetText(("|cff%s%d|r"):format(reach and "ffd100" or "8a8a8a", row.need))
-                -- THE DIFFICULTY COLOUR, because in a profession list that is the information:
-                -- it says whether a recipe will raise your skill. Item quality was nearly constant
-                -- - every smithing recipe is green - so it carried nothing. This read as noise
-                -- before only because dead recipes were mixed in with live ones; they are in their
-                -- own group now, so it reads straight.
-                r.text:SetText(U.Colored(row.colour, U.RecipeName(row.spell)))
+                -- The skill it takes to learn, first, because that is what the list is sorted
+                -- by - and coloured by what the recipe is worth at your level, which is the one
+                -- place that colour is about the same thing the number is.
+                r.range:SetText(U.Colored(row.colour, tostring(row.need)))
+                -- The name says what the ITEM is. Difficulty moved to the number, which is
+                -- already about skill, so the two are not fighting over one colour any more.
+                r.text:SetText((row.item and row.item > 0 and U.ItemQualityColor(row.item)
+                    or "|cffffffff") .. U.RecipeName(row.spell) .. "|r")
                 r.text:SetAlpha(g.dim and 0.5 or 1)
-                -- and where it dies, which is what decides whether it is worth the walk
+                -- and the level you need to USE it, which is the "can I wear this" question. Not
+                -- in our data - Items.lua carries itemLevel, which is a different number - so it
+                -- comes from the client, and a row it has not cached shows nothing there rather
+                -- than a wrong number.
+                local useLevel = row.item and row.item > 0 and C_Item and C_Item.GetItemInfo
+                    and select(5, C_Item.GetItemInfo(row.item))
                 r.right:SetText((row.estimated and "|cffff8040*?|r " or "")
-                    .. (g.live and ("|cff8a8a8ato %d|r"):format(row.grey) or ""))
+                    .. ((useLevel and useLevel > 1) and ("|cff8a8a8alvl %d|r"):format(useLevel) or ""))
                 r.tipItem, r.tipSpell, r.tipExtra = row.item, row.spell, nil
                 r:SetScript("OnMouseUp", nil)
                 r:ClearAllPoints()
@@ -1433,8 +1438,10 @@ local function RefreshRoute(f)
             .. "it is the shortest route."):format(route.pricedTo)
     end
     if route.gapAt then
-        notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a. Any of these "
-            .. "would carry it further:|r"):format(route.gapAt)
+        -- The list below says which recipes would carry it further, in full, grouped and sorted.
+        -- This used to repeat a handful of them in a section of its own under the note.
+        notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a.|r")
+            :format(route.gapAt)
         why[#why + 1] = ("No trainer recipe gives skill past %d. Most of Forever's new recipes come "
             .. "from recipe items whose drops and vendors aren't known yet, so the plan can only use "
             .. "one once you have learned it."):format(route.gapAt)
@@ -1464,23 +1471,6 @@ local function RefreshRoute(f)
     f.note:SetWidth(c:GetWidth() - 10)
     y = y - 8 - f.note:GetStringHeight()
 
-    -- and the recipes that would carry it past the end, drawn like the route above them
-    for _, g in ipairs((route.gapAt and route.gapOptions) or {}) do
-        n = n + 1
-        local r = RouteRow(f, n)
-        r.bg:Hide()
-        r.icon:SetTexture(U.RecipeIcon(g.item, g.spell))
-        r.range:SetText(("|cffff8040%d|r"):format(g.learn))
-        r.text:SetText(("%s %s"):format(U.RecipeName(g.spell), SourceTag(g.source)))
-        r.right:SetText(("|cffffff00%d|r |cff808080%d|r"):format(g.yellow, g.grey))
-        r.tipItem = (g.recipeItem and g.recipeItem > 0) and g.recipeItem or g.item
-        r.tipSpell, r.tipExtra = g.spell, nil
-        r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", c, "TOPLEFT", 4, y - 4)
-        r:SetPoint("RIGHT", c, "RIGHT", -4, 0)
-        r:Show()
-        y = y - 4 - ROW
-    end
     c:SetHeight(-y + 16)
 end
 
