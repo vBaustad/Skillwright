@@ -1209,9 +1209,11 @@ local function DrawTrainable(f, prof, c, y, n)
     y = y - ROW - 1
     if not open then return y - 4, n end
 
+    local groupOpen = SW.Settings().trainGroupOpen or {}
     for _, g in ipairs(TRAIN_GROUPS) do
         local rows = list[g.key]
         if #rows > 0 then
+            local shownGroup = groupOpen[g.key] and true or false
             -- A header is not a row with a different colour. Full width, a solid bar, the label
             -- at the left and the count at the far right, and air above it so the groups read as
             -- groups rather than as a run of lines.
@@ -1223,17 +1225,21 @@ local function DrawTrainable(f, prof, c, y, n)
             h.icon:SetTexture(nil)
             if h.rarity then h.rarity:Hide() end
             h.range:SetText("")
-            h.text:SetText(("|cffffd100%s|r"):format(g.label))
+            h.text:SetText(("%s |cffffd100%s|r"):format(shownGroup and "-" or "+", g.label))
             h.right:SetText(("|cff8a8a8a%d|r"):format(#rows))
             h.tipItem, h.tipSpell, h.tipExtra = nil, nil, nil
-            h:SetScript("OnMouseUp", nil)
+            h:SetScript("OnMouseUp", function()
+                local open = SW.Settings().trainGroupOpen
+                open[g.key] = not open[g.key] or nil
+                SW.RefreshWindow()
+            end)
             h:ClearAllPoints()
             h:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
             h:SetPoint("RIGHT", c, "RIGHT", 0, 0)
             h:Show()
             y = y - HEADER
 
-            for _, row in ipairs(rows) do
+            for _, row in ipairs(shownGroup and rows or {}) do
                 local reach = row.need <= list.rank
                 n = n + 1
                 local r = RouteRow(f, n, true)
@@ -2228,12 +2234,26 @@ local function Build()
     win.art:SetAlpha(0.5)
     win.atlasOK = atlas
 
-    -- and the lines and corners around it, on the body's own bounds: they used to reach six pixels
-    -- past it on every side, which put them through the scrollbar
-    win.inset = win.body:CreateTexture(nil, "BORDER")
-    win.inset:SetPoint("TOPLEFT", 0, 0)
-    win.inset:SetPoint("BOTTOMRIGHT", 0, 0)
-    atlas(win.inset, "common-insideframe")
+    -- THE PANEL, nine-sliced. common-insideframe is one texture stretched to fit: its corner art
+    -- distorts at any size but the one it was drawn for, and its top edge is a single unbroken
+    -- line, which is why a tab laid over it leaves a break rather than merging into it.
+    -- InsetFrameTemplate is the client's own nine-slice - corners at their true size, edges
+    -- stretched one way only - so it is right at any size and its top edge is drawn in pieces.
+    local ok, inset = pcall(CreateFrame, "Frame", nil, win.body, "InsetFrameTemplate")
+    if ok and inset then
+        inset:SetPoint("TOPLEFT", 0, 0)
+        inset:SetPoint("BOTTOMRIGHT", 0, 0)
+        inset:SetFrameLevel(math.max(0, win.body:GetFrameLevel() - 1))
+        win.inset = inset
+    else
+        -- no template in this client: keep the texture rather than hand-draw a copy of Blizzard's
+        -- art, which would be wrong the first time they change it
+        SW.dbg("no InsetFrameTemplate - falling back to the flat border")
+        win.inset = win.body:CreateTexture(nil, "BORDER")
+        win.inset:SetPoint("TOPLEFT", 0, 0)
+        win.inset:SetPoint("BOTTOMRIGHT", 0, 0)
+        atlas(win.inset, "common-insideframe")
+    end
 
     -- "No auction prices yet": a strip above the tabs' content while there is nothing to cost a route with
     local note = CreateFrame("Frame", nil, win)

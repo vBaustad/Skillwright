@@ -84,6 +84,12 @@
 
 ### The window
 
+- **The not-learned list opens instantly.** It used to build four hundred rows the moment you
+  opened it, and ask the client for every name, icon and item quality at once, so it appeared
+  wrong and settled a second later. Each group opens on its own now, and they all start shut.
+- **The panel is drawn with the client's own nine-slice**, so its corners are crisp at any size
+  instead of being one stretched texture.
+
 - **Clicking Mining or Fishing no longer throws the guide across the screen.** It let go of the
   profession window and went back to wherever you had last dragged it, which from your side is
   just the window jumping. It stays where it is now and says it has nothing to plan for that one.
