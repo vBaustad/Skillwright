@@ -229,6 +229,7 @@ local DEFAULTS = {
         -- hundred rows, and building them all to show four headings is what made it appear
         -- broken and then settle.
         trainGroupOpen = {},
+        routeOpen = true,        -- the route itself, on the Route page
 
         maxPriceAge = 3,         -- days before our own auction scan counts as stale (and is ignored)
         preferVendor = true,     -- favour recipes whose materials all come from a vendor

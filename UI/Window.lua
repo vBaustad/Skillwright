@@ -1136,6 +1136,10 @@ local function RouteRow(f, i, numberFirst)
             self.range:SetPoint("LEFT", self.icon, "RIGHT", 6, 0)
             self.text:SetPoint("LEFT", self.range, "RIGHT", 6, 0)
         end
+        -- LEFT, always. A FontString that is right-justified and too long for its box keeps
+        -- the END of the string and clips the start, so "Silver Rod" came out as "er Rod". These
+        -- rows are pooled and everything else about them is set per call; this was not.
+        self.text:SetJustifyH("LEFT")
         self.text:SetPoint("RIGHT", self.right, "LEFT", -6, 0)
     end
     r:Layout(numberFirst)
@@ -1291,10 +1295,39 @@ local function RefreshRoute(f)
     -- list below went unseen. The steps that do not fit are named in a line rather than dropped.
     local SHOW_STEPS = 8
     local drawnSteps, skippedSteps = 0, 0
+    local routeOpen = SW.Settings().routeOpen ~= false
+
+    -- The route folds away like the groups below it: same bar, same + and -, same saved state.
+    n = n + 1
+    local rhead = RouteRow(f, n, true)
+    rhead:SetHeight(HEADER)
+    rhead.bg:Show()
+    rhead.bg:SetColorTexture(0, 0, 0, 0.45)
+    rhead.icon:SetTexture(nil)
+    if rhead.rarity then rhead.rarity:Hide() end
+    rhead.range:SetText("|cff8a8a8askill|r")
+    rhead.text:SetText(("%s |cffffd100The route|r"):format(routeOpen and "-" or "+"))
+    rhead.right:SetText(("|cff8a8a8a%d to %d|r"):format(rank, route.to))
+    rhead.tipItem, rhead.tipSpell = nil, nil
+    rhead.tipExtra = function(tt)
+        tt:AddLine("The route", 1, 0.82, 0.3)
+        tt:AddLine("What to make next, in order, from where you are to the end of the profession. "
+            .. "Click to fold it away.", 0.85, 0.85, 0.85, true)
+    end
+    rhead:SetScript("OnMouseUp", function()
+        SW.Settings().routeOpen = not routeOpen
+        SW.RefreshWindow()
+    end)
+    rhead:ClearAllPoints()
+    rhead:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
+    rhead:SetPoint("RIGHT", c, "RIGHT", 0, 0)
+    rhead:Show()
+    y = y - HEADER
+    if not routeOpen then SHOW_STEPS = 0 end
     local owned = Plan.OwnedTools()
     for _, row in ipairs(Plan.Rows(prof) or {}) do
         -- A trainer visit is a step of the route: it is the thing to do next when you reach that rank.
-        if row.train and row.train.at > rank then
+        if row.train and row.train.at > rank and routeOpen then
             local b = row.train
             n = n + 1
             local r = RouteRow(f, n)
@@ -1383,7 +1416,7 @@ local function RefreshRoute(f)
             .. "|cff8a8a8aleft, skill %d to %d.|r"):format(restCrafts, SW.MoneyShort(restCost), rank, route.to)
     end
 
-    if skippedSteps > 0 then
+    if skippedSteps > 0 and routeOpen then
         n = n + 1
         local more = RouteRow(f, n)
         more.bg:Hide()

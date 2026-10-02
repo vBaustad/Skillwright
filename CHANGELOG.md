@@ -90,6 +90,10 @@
 - **The list's rows no longer sit on each other.** They were taller than the space between them,
   so every row overlapped the next and every icon leaned into the line below - worst in the first
   second after opening, before the icons had loaded and given the eye something to lock onto.
+- **Long recipe names keep their beginnings.** They were clipped from the left, so "Silver Rod"
+  read as "er Rod".
+- **The route folds away too**, like the groups under it, and its bar says which skills it covers
+  while it is shut.
 - **Each row says three things, one per column.** The skill you need to learn it, coloured the way
   the trade window colours the recipe - orange down to grey - so you can see what it is worth at a
   glance; the name in the item's own rarity colour; and the level you need to use what it makes.
