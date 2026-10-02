@@ -11,6 +11,12 @@
 
 ### The route
 
+- **The route says which workstation it is waiting on.** When it stops short it used to blame
+  recipes from drops nobody has mapped. That was not it: Tailoring stops at 255 because the rest
+  needs a Loom or a Spinning Wheel, Leatherworking at 250 for a Sewing Machine, Blacksmithing at
+  285 for a Master Forge. It names the station, how many recipes are behind it, and how far they
+  would carry you.
+
 - **What you have not learned, on the Route tab**, opening on the part that can still help you.
   Four groups: what to go and learn at a trainer, what you have the skill for but need the recipe
   for, what is still out of reach, and - last and dimmed - what has gone grey and can no longer

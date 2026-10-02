@@ -26,6 +26,20 @@ SW.PROFESSIONS = {
     [197] = { name = "Tailoring", icon = "Interface\\Icons\\Trade_Tailoring" },
 }
 -- Every profession line, so ranks of gathering professions don't get mistaken for crafting ones.
+-- The workstations Forever added, from the client's own spellfocusobject table (build
+-- 1.60.1.70170). A recipe that needs one can only be made standing at it, and they stand in fixed
+-- places in the world - what a campfire puts down is an ordinary anvil, not one of these. Three
+-- professions' routes end where they do because of them, and the card used to blame something else.
+SW.STATIONS = {
+    [2248] = "Fermenter",        [2249] = "Tanning Rack",   [2250] = "Spinning Wheel",
+    [2251] = "Arcane Fragmenter",[2252] = "Engraving Kit",  [2253] = "Centrifuge",
+    [2254] = "Exotic Materials Guide", [2255] = "Sewing Kit", [2256] = "Arcane Salvager",
+    [2257] = "Iron Oven",        [2258] = "Seed Hybridizer",[2259] = "Molten Foundry",
+    [2260] = "Bait Workshop",    [2261] = "Master Forge",   [2262] = "Lapidary",
+    [2263] = "Alchemy Laboratory", [2264] = "Sewing Machine", [2265] = "Loom",
+    [2266] = "Arcane Forge",     [2267] = "Anarchist's Workbench",
+}
+
 SW.ALL_LINES = { [164] = true, [165] = true, [171] = true, [182] = true, [185] = true, [186] = true,
                  [197] = true, [202] = true, [333] = true, [356] = true, [393] = true, [129] = true }
 

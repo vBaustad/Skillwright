@@ -162,7 +162,10 @@ function Plan.Options(prof, from)
         learnRanks = db.learnRanks,
         vendorPrices = db.vendor,
         market = SW.Prices.Market,
-        allowCamp = false,       -- recipes that need a camp station (Tanning Rack, Master Forge ...) stay out
+        -- Recipes that can only be made standing at one of Forever's workstations - a Loom, a
+        -- Master Forge - stay out of the route, because the plan cannot know the player will
+        -- travel to one. Plan.GapStations names them when that is what ends the route.
+        allowCamp = false,
         preferVendor = s.preferVendor,
         owned = Plan.OwnedTools(),
         haveMats = s.useOwned ~= false and Plan.HaveMats(prof) or nil,
@@ -661,6 +664,33 @@ function Plan.Trainable(prof)
     table.sort(soon, bySkill)
     table.sort(dead, bySkill)
     return { now = now, recipe = recipe, soon = soon, dead = dead, rank = rank }
+end
+
+-- WHAT ENDS THE ROUTE, when a workstation does. The card used to say the route stopped because
+-- "no trainer recipe gives skill past that" and blame recipes from unknown drops. For the three
+-- professions where a route really does stop, that is not it: Tailoring has 43 Loom recipes and 27
+-- Spinning Wheel ones still live past where it ends, Leatherworking 91 Sewing Machine, and
+-- Blacksmithing 62 Master Forge. We have carried the station on every recipe from the start and
+-- never shown it once.
+function Plan.GapStations(prof, past)
+    local data = SW.Data.professions[prof]
+    if not (data and past) then return nil end
+    local count, best = {}, {}
+    for _, r in ipairs(data[2]) do
+        local station = r[9]
+        if r[12] and SW.STATIONS[station] and (r[6] or 0) > past then
+            local name = SW.STATIONS[station]
+            count[name] = (count[name] or 0) + 1
+            best[name] = math.max(best[name] or 0, r[6])
+        end
+    end
+    local out = {}
+    for name, n in pairs(count) do
+        out[#out + 1] = { name = name, count = n, to = best[name] }
+    end
+    if #out == 0 then return nil end
+    table.sort(out, function(a, b) return a.to > b.to end)
+    return out
 end
 
 -- The step the player is following, remembered per character and profession (so it survives a /reload).

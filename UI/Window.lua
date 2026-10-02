@@ -1471,13 +1471,30 @@ local function RefreshRoute(f)
             .. "it is the shortest route."):format(route.pricedTo)
     end
     if route.gapAt then
-        -- The list below says which recipes would carry it further, in full, grouped and sorted.
-        -- This used to repeat a handful of them in a section of its own under the note.
-        notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a.|r")
-            :format(route.gapAt)
-        why[#why + 1] = ("No trainer recipe gives skill past %d. Most of Forever's new recipes come "
-            .. "from recipe items whose drops and vendors aren't known yet, so the plan can only use "
-            .. "one once you have learned it."):format(route.gapAt)
+        -- NAME WHAT ENDS IT. This used to say the route stopped because no trainer recipe went
+        -- past that rank, and blame recipes from unknown drops. For every profession where a
+        -- route really does stop, that is not what stops it - a workstation does, and we have
+        -- carried which one on every recipe since the beginning without ever saying it.
+        local stations = Plan.GapStations(prof, route.gapAt)
+        if stations then
+            -- one sentence, not two: the page is three lines and this is one fact
+            local bits = {}
+            for _, st in ipairs(stations) do
+                bits[#bits + 1] = ("|cffffd100%s|r|cff8a8a8a (%d, to %d)|r")
+                    :format(st.name, st.count, st.to)
+            end
+            notes[#notes + 1] = ("|cff8a8a8aEnds at|r |cffffd100%d|r|cff8a8a8a - past that you "
+                .. "need|r %s"):format(route.gapAt, table.concat(bits, ", "))
+            why[#why + 1] = ("The recipes that would carry it further can only be made standing at "
+                .. "a workstation, and the plan cannot assume you will travel to one. They are in "
+                .. "the list below, under the group for what you have the skill for.")
+        else
+            notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a.|r")
+                :format(route.gapAt)
+            why[#why + 1] = ("No trainer recipe gives skill past %d. Most of Forever's new recipes "
+                .. "come from recipe items whose drops and vendors aren't known yet, so the plan "
+                .. "can only use one once you have learned it."):format(route.gapAt)
+        end
     end
     local trade = Plan.TradeOff(prof)
     if trade then
