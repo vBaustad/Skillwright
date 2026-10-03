@@ -124,7 +124,12 @@ function Page.Build(f)
 
     checkbox("Auction price on item tooltips", "tooltipPrice",
         "One line on any item tooltip with what the auction house wants for it, and where that number "
-        .. "came from. Nothing is shown for items we have no price for.")
+        .. "came from. Nothing is shown for items we have no price for. Off unless you ask: if you run "
+        .. "Auctionator or TSM they already put that number there.")
+    checkbox("Disenchant results on item tooltips", "tooltipDisenchant",
+        "For an enchanter, one line with what disenchanting items like this has actually given you - "
+        .. "counted from your own disenchants, not a table. Nothing is shown until there is something "
+        .. "to show.")
 
     -- Trainers
     heading("Trainers")

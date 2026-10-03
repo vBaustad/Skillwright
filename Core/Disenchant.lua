@@ -109,10 +109,13 @@ end
 --- No Enchanting, no line: the subject does not exist for that character. Enchanting but nothing seen
 --- yet is a different thing, and says so - an empty answer to a real question.
 function DE.Line(id)
+    if not SW.Settings().tooltipDisenchant then return nil end
     if not DE.Have() then return nil end
     local group = DE.Group(id)
     if not group then return nil end
     local text, n = DE.Summary(group)
+    -- "Nothing yet" stays. UI/Tooltip.lua's rule - an empty unknown is worse than silence - is why
+    -- this line is now opt-in; once you HAVE asked for it, silence would read as a broken counter.
     if not text then
         return "|cff8a8a8aDisenchant: nothing recorded yet for items like this|r"
     end

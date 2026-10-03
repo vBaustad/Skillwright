@@ -282,7 +282,9 @@ local DEFAULTS = {
         useOwned = true,         -- count materials already in the bags or bank as (nearly) free
         autoReplaceEnchant = false, -- accept "replace enchant?" for enchants Skillwright started
         deepTrainerScan = true,  -- read a trainer's hidden services once per visit (the list blinks once)
-        tooltipPrice = true,     -- one line on item tooltips: the auction price, and where it came from
+        -- Lines on other people's tooltips are someone else's screen. Both off until asked for.
+        tooltipPrice = false,    -- one line on item tooltips: the auction price, and where it came from
+        tooltipDisenchant = false, -- one line for an enchanter: what items like this have disenchanted into
     },
     learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers
     trainerSeen = {},            -- [recipeSpellID] = true when a trainer offers it
@@ -357,7 +359,18 @@ local function MigrateDefaultMode()
     return true
 end
 
+-- The tooltip lines used to be on, and one of them could not be turned off at all. They are off
+-- now. Someone who turned the price line OFF keeps it off; nobody can have meaningfully turned it
+-- ON, because it was already on - so there is no choice here to overrule, only a default.
+local function MigrateTooltipsOff()
+    local db = SW.DB()
+    if db.migrations.tooltipsQuiet then return end
+    db.migrations.tooltipsQuiet = true
+    SW.Settings().tooltipPrice = false
+end
+
 SW.Listen("LOGIN", function()
+    MigrateTooltipsOff()
     if MigrateDefaultMode() then
         SW.msg("|cffffd100Cheapest needs auction prices|r, and without them it was only ever showing the "
             .. "shortest route. You are on |cffffd100Fastest|r now, which is the same plan under its own "
