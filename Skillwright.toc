@@ -19,7 +19,6 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\lib.xml
 Libs\LibForever-1.0\LibForever-1.0.lua
-Libs\LibForever-1.0\Launcher.lua
 Libs\LibForever-1.0\Windows.lua
 Libs\LibForever-1.0\Minimap.lua
 Libs\LibForever-1.0\Welcome.lua
@@ -49,5 +48,4 @@ UI\Dashboard.lua
 UI\Window.lua
 UI\Launcher.lua
 UI\Tooltip.lua
-UI\Welcome.lua
 UI\Options.lua

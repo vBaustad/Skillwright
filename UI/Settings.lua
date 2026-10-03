@@ -1,6 +1,7 @@
 -- Skillwright - the settings, built the same way into the guide's Settings tab and into the page under
--- Blizzard's Options > AddOns, so the two can't drift apart. Minimap and launcher buttons live on the shared
--- YippYapp page (the link block at the bottom).
+-- Blizzard's Options > AddOns, so the two can't drift apart. The shared YippYapp page is gone, so the one
+-- choice it carried for us - whether Skillwright is in the YippYapp minimap button - is here, and so is
+-- the help text that used to be a welcome page of its own.
 --
 -- Every element is anchored below the one before it, so wrapped text of any length leaves neither gaps nor
 -- overlaps, at the guide tab's width as well as the wider Options page.
@@ -11,6 +12,34 @@ local Page = {}
 SW.SettingsPage = Page
 
 local GREY = "|cff9a9a9a"
+
+-- The help that used to be Skillwright's page in the shared welcome window. It sits at the bottom of
+-- this page: whoever opens settings came for the switches and scrolls for the rest. The last two
+-- sections were already on this page under their own "Good to know" heading, which is why they read
+-- as one block now instead of appearing twice under two headings of the same name.
+local HELP = {
+    { "What it does",
+      "Plans your profession from your current skill to 300 from the game's own recipe data: which recipe to "
+      .. "make, how many, the materials and the cost. Pick |cffffd100Cheapest|r or |cffffd100Fastest|r; recipes "
+      .. "with vendor materials come first, and tools like enchanting rods get their own steps." },
+    { "Getting started",
+      "Open your profession window and the guide opens beside it - or click the Skillwright icon on the "
+      .. "minimap (behind the YippYapp button if you use several YippYapp addons), or type |cffffd100/skw|r. "
+      .. "Craft from the Now tab; Route and Shopping show the rest. Settings: the guide's Settings tab "
+      .. "(|cffffd100/skw config|r or right-click the icon), or Options > AddOns > Skillwright." },
+    { "Trainers, vendors and the auction house",
+      "Visit a trainer and Skillwright learns what each recipe needs and offers to train your route. At a vendor "
+      .. "it buys what you're short of. At the auction house, |cffffd100Scan prices|r gives Cheapest real prices."
+      .. "\n\n|cffffd100Prices|r come from Auctionator or TSM when installed, else from your own scan. Without "
+      .. "them only vendor prices are known - nothing else is guessed, and the guide shows the shortest route "
+      .. "instead of the cheapest." },
+    { "Good to know",
+      "|cffffd100Trainer recipes:|r the game doesn't say what skill one needs until you see it at a trainer. "
+      .. "Until then the plan estimates it (marked estimated)."
+      .. "\n\n|cffffd100Recipe drops and vendors|r aren't in the game data yet, so the plan uses those recipes "
+      .. "only once you know them - some routes stop before 300. Quest and specialization recipes are listed by "
+      .. "hand. Built from WoW: Forever beta data." },
+}
 
 function Page.Build(f)
     local sf = U.Scroll(f)
@@ -143,22 +172,21 @@ function Page.Build(f)
         "When the Craft button enchants an item that already has an enchant. Never for gear you are wearing, "
         .. "and never for anything you enchant yourself.")
 
-    -- How it works, and what it can't know yet
-    heading("Good to know")
-    text("|cffffd100Prices|r come from Auctionator or TSM when installed, else from your own scan: open the "
-        .. "auction house and press |cffffd100Scan prices|r. Without them only vendor prices are known - "
-        .. "nothing else is guessed, and the guide shows the shortest route instead of the cheapest.",
-        nil, 4, 6)
-    text("|cffffd100Trainer recipes:|r the game doesn't say what skill one needs until you see it at a trainer. "
-        .. "Until then the plan estimates it (marked estimated).", nil, 4, 6)
-    text("|cffffd100Recipe drops and vendors|r aren't in the game data yet, so the plan uses those recipes only "
-        .. "once you know them - some routes stop before 300. Quest and specialization recipes are listed by "
-        .. "hand. Built from WoW: Forever beta data.", nil, 4, 6)
-
-    -- YippYapp: the link to the shared page (minimap and launcher buttons), the welcome page, the footer
+    -- YippYapp: one grouped minimap button for the suite, and whether we are in it. Not a Settings()
+    -- field - the library owns that state - so it is set and read on its own, not through f.checks.
     local LIB = SW.LIB
-    if LIB.LauncherOptions then place(LIB.LauncherOptions(p, "Skillwright"), 4, 18) end
-    -- No welcome button: the YippYapp window this page lives in has its own way there.
+    if LIB.SetMinimapButtonShown and LIB.IsMinimapButtonShown then
+        heading("YippYapp")
+        local cb = U.Checkbox(p, "Show Skillwright on the minimap")
+        cb:SetScript("OnClick", function(self)
+            LIB.SetMinimapButtonShown("Skillwright", self:GetChecked() and true or false)
+        end)
+        place(cb, 4, 8)
+        f.minimapCheck = cb
+        text(GREY .. "YippYapp addons share one minimap button. This is whether Skillwright is in it - "
+            .. "the guide also opens from your profession window and from |cffffd100/skw|r.|r",
+            "GameFontHighlightSmall", 32, 0)
+    end
     text(GREY .. "|cffffd100/skw|r opens the guide, |cffffd100/skw config|r these settings.\n"
         .. "Part of YippYapp - addons for WoW: Forever that work even better together.|r", nil, 4, 12)
     f.lastWidget = last
@@ -167,11 +195,20 @@ end
 -- Fit the scroll child to what was laid out (heights of wrapped text are only known once shown).
 local function FitHeight(f)
     local top, bottom = f.p:GetTop(), f.lastWidget and f.lastWidget:GetBottom()
-    if top and bottom then f.p:SetHeight(top - bottom + 16) else f.p:SetHeight(900) end
+    if not (top and bottom) then f.p:SetHeight(900) return end
+    local y = -(top - bottom) - 18
+    -- The help is laid out here and not in Build because AddHelp wraps to the page's real width, and
+    -- at Build time the page has no width to wrap to. Calling it again replaces the text.
+    local LIB = SW.LIB
+    if LIB and LIB.AddHelp then y = LIB.AddHelp(f.p, HELP, y) end
+    f.p:SetHeight(-y + 16)
 end
 
 function Page.Refresh(f, prof)
     for _, cb in ipairs(f.checks) do cb:SetChecked(SW.Settings()[cb.key] and true or false) end
+    if f.minimapCheck and SW.LIB.IsMinimapButtonShown then
+        f.minimapCheck:SetChecked(SW.LIB.IsMinimapButtonShown("Skillwright"))
+    end
     f.mode:Select(SW.Settings().mode)
 
     -- Which profession the specialization belongs to: the one the guide last showed when it has one,

@@ -1,10 +1,9 @@
--- Skillwright - ways in: the shared launcher notch, the addon compartment, the minimap button
--- (LibDBIcon through LibForever) and a Scan prices button on the auction house.
+-- Skillwright - ways in: the addon compartment, the minimap button (LibDBIcon through
+-- LibForever) and a Scan prices button on the auction house. The shared launcher bar this file
+-- was named after is gone; the name is now wrong and the three ways in that stay are not.
 local ADDON, SW = ...
 local U = SW.UI
 local LIB = SW.LIB
-
-local ICON = "Interface\\AddOns\\Skillwright\\Media\\notch"
 
 local function OnClick(button)
     if button == "RightButton" then SW.OpenSettings() else SW.ToggleWindow() end
@@ -41,7 +40,7 @@ local function BuildMinimap()
 end
 
 -- ---------------------------------------------------------------------------
--- Addon compartment (wired from the .toc) and the shared launcher notch
+-- Addon compartment (wired from the .toc)
 -- ---------------------------------------------------------------------------
 function Skillwright_OnAddonCompartmentClick(_, button) OnClick(button) end
 function Skillwright_OnAddonCompartmentEnter(_, menuButton)
@@ -50,20 +49,6 @@ function Skillwright_OnAddonCompartmentEnter(_, menuButton)
     GameTooltip:Show()
 end
 function Skillwright_OnAddonCompartmentLeave() GameTooltip:Hide() end
-
-local function RegisterNotch()
-    if not LIB.RegisterLauncher then return end
-    LIB.RegisterLauncher({
-        id = "Skillwright", label = "Skillwright", order = 20, icon = ICON,
-        onClick = OnClick,
-        status = function()
-            local prof = SW.CharDB().lastProf or SW.Prof.Mine()[1]
-            if not prof or not SW.CharProf(prof).has then return nil end
-            return ("%s %d/%d"):format(SW.ProfName(prof), SW.Prof.Rank(prof), SW.CharProf(prof).max or 0)
-        end,
-        tooltip = { "Left-click: open the guide", "Right-click: settings" },
-    }, SW.DB())
-end
 
 -- ---------------------------------------------------------------------------
 -- Auction house: a Scan prices button on its frame
@@ -97,4 +82,3 @@ SW.Listen("SCAN_STATE", function()
 end)
 
 SW.Listen("LOGIN", BuildMinimap)
-SW.Listen("LOGIN", RegisterNotch)
