@@ -1,5 +1,98 @@
 # Skillwright for WoW: Forever
 
+## 0.2.0-beta2
+
+### Where things live
+
+- **The welcome page is gone and its text is on the settings page**, at the bottom, under its own
+  headings: what it does, getting started, trainers and vendors and the auction house, and good to
+  know. Nothing was cut. Two of those sections were already on that page under a second "Good to
+  know" heading, so they read as one block now instead of twice under the same title.
+
+- **"Open the guide" no longer sits on top of the scrollbar** on the Options > AddOns page. It
+  was pinned to the window while the page scrolled beneath it, so it covered the scroll arrow and
+  anything that scrolled past. It is part of the page now, beside the title, and the title's text
+  leaves room for it.
+
+- **The YippYapp launcher bar is gone.** The one thing it still decided for Skillwright - whether
+  the icon is in the shared YippYapp minimap button - is a checkbox on Skillwright's own settings
+  page. The guide still opens from your profession window, the minimap and |cffffd100/skw|r.
+
+### Tooltips
+
+- **Nothing is added to an item tooltip unless you ask for it.** Skillwright wrote two lines
+  there: the auction price, which was on, and - for an enchanter - what items like this have
+  disenchanted into, which had no setting at all and could not be turned off. Both are off now,
+  with a checkbox each. If you run Auctionator or TSM, the price line was repeating a number
+  those addons already put on the same tooltip.
+
+  Turning it off reaches people who are already playing, not just new installs. Anyone who had
+  switched the price line off keeps it off - and nobody can have meaningfully switched it on,
+  because it was on to begin with.
+
+### The route
+
+- **Tailoring reaches 300.** It used to stop at 255, and the reason was ours: every recipe
+  needing one of Forever's workstations was dropped on the assumption that a workstation is
+  somewhere you travel to. It is not - you build it, and a tailor builds a Spinning Wheel at
+  140. The 74 recipes behind it are a step, not a wall. The guide now works out, per profession,
+  the skill needed to build each station, and holds those recipes back to exactly that point.
+
+- **The route tells you to build the workstation**, once, before the first step that needs it,
+  the same way it tells you to make a missing tool - with its materials and what they cost.
+
+- **The route says which workstation it is waiting on**, when one really is in the way. It used
+  to blame recipes from drops nobody has mapped. That was not it: Leatherworking stops at 250
+  for a Sewing Machine and Blacksmithing at 285 for a Master Forge, and both of those need 300
+  in the same profession to build - the rank the route is trying to reach. It names the station,
+  how many recipes are behind it, how far they would carry you, and what building one takes.
+
+- **What you have not learned, on the Route tab**, opening on the part that can still help you.
+  Four groups: what to go and learn at a trainer, what you have the skill for but need the recipe
+  for, what is still out of reach, and - last and dimmed - what has gone grey and can no longer
+  raise your skill at all. The first two are ordered by how much skill is left in each recipe,
+  not by what it costs to learn, and each row says where it goes grey. A skill we have estimated
+  is marked; visit the trainer once and the real number replaces it.
+
+### The window
+
+- **The window stops jumping a moment after it opens.** The "auction prices are out of date"
+  strip was measured before anything had told it how wide it was, so it drew one line tall and
+  grew to two a frame later, pushing everything below it down. Nothing was loading.
+- **The list's rows no longer sit on each other.** They were taller than the space between them,
+  so every row overlapped the next and every icon leaned into the line below - worst in the first
+  second after opening, before the icons had loaded and given the eye something to lock onto.
+- **Long recipe names keep their beginnings.** They were clipped from the left, so "Silver Rod"
+  read as "er Rod".
+- **The route folds away too**, like the groups under it, and its bar says which skills it covers
+  while it is shut.
+- **Each row says three things, one per column.** The skill you need to learn it, coloured the way
+  the trade window colours the recipe - orange down to grey - so you can see what it is worth at a
+  glance; the name in the item's own rarity colour; and the level you need to use what it makes.
+- **The Route tab no longer lists the same recipes twice.** The section at the bottom offering
+  recipes that would carry the route further was a short version of the list now sitting above it.
+- **The list says what its columns are.** The skill you need on the left, the skill it stops
+  helping at on the right, and the name in the colour the trade window gives it - all three
+  named, with the rest on the hover.
+- **The not-learned list opens instantly.** It used to build four hundred rows the moment you
+  opened it, and ask the client for every name, icon and item quality at once, so it appeared
+  wrong and settled a second later. Each group opens on its own now, and they all start shut.
+- **The panel is drawn with the client's own nine-slice**, so its corners are crisp at any size
+  instead of being one stretched texture.
+
+### Fixes
+
+- **The Route tab is readable.** Eight paragraphs of notes sat under the route; what is left is
+  the total and a legend for the markers actually on screen, with the reasons on a hover.
+- **Trainer steps can be read.** "Train Expert Blacksmithing (..." was cut off and had no hover,
+  so there was no way to see the rest of it. It answers a hover now.
+
+- **Training pet skills works again.** Skillwright reads what a trainer teaches, and to see the
+  services your own filters hide it turns those filters on for a moment. It was doing that at
+  EVERY trainer - class, pet, riding - and changing a filter from an addon makes the client refuse
+  the Train button afterwards and tell you to disable your addons. It was not an error anyone
+  could report, because nothing errored. It now only touches a trainer that teaches a profession
+  it plans for, and only reads the rest.
 ## 0.2.0-beta1
 
 ### The Now tab
@@ -11,18 +104,6 @@
 
 ### The route
 
-- **The route says which workstation it is waiting on.** When it stops short it used to blame
-  recipes from drops nobody has mapped. That was not it: Tailoring stops at 255 because the rest
-  needs a Loom or a Spinning Wheel, Leatherworking at 250 for a Sewing Machine, Blacksmithing at
-  285 for a Master Forge. It names the station, how many recipes are behind it, and how far they
-  would carry you.
-
-- **What you have not learned, on the Route tab**, opening on the part that can still help you.
-  Four groups: what to go and learn at a trainer, what you have the skill for but need the recipe
-  for, what is still out of reach, and - last and dimmed - what has gone grey and can no longer
-  raise your skill at all. The first two are ordered by how much skill is left in each recipe,
-  not by what it costs to learn, and each row says where it goes grey. A skill we have estimated
-  is marked; visit the trainer once and the real number replaces it.
 - **The plan now runs the whole way to 300**, with the trainer visits in it as steps of their own -
   Journeyman at 75, Expert at 150, Artisan at 225. Before, it stopped at whatever your current rank
   cap was, so a smith at 81 saw two steps and a footnote. When the next thing to do is walk to a
@@ -89,30 +170,6 @@
   and says how many it has seen. No Enchanting means no line at all.
 
 ### The window
-
-- **The window stops jumping a moment after it opens.** The "auction prices are out of date"
-  strip was measured before anything had told it how wide it was, so it drew one line tall and
-  grew to two a frame later, pushing everything below it down. Nothing was loading.
-- **The list's rows no longer sit on each other.** They were taller than the space between them,
-  so every row overlapped the next and every icon leaned into the line below - worst in the first
-  second after opening, before the icons had loaded and given the eye something to lock onto.
-- **Long recipe names keep their beginnings.** They were clipped from the left, so "Silver Rod"
-  read as "er Rod".
-- **The route folds away too**, like the groups under it, and its bar says which skills it covers
-  while it is shut.
-- **Each row says three things, one per column.** The skill you need to learn it, coloured the way
-  the trade window colours the recipe - orange down to grey - so you can see what it is worth at a
-  glance; the name in the item's own rarity colour; and the level you need to use what it makes.
-- **The Route tab no longer lists the same recipes twice.** The section at the bottom offering
-  recipes that would carry the route further was a short version of the list now sitting above it.
-- **The list says what its columns are.** The skill you need on the left, the skill it stops
-  helping at on the right, and the name in the colour the trade window gives it - all three
-  named, with the rest on the hover.
-- **The not-learned list opens instantly.** It used to build four hundred rows the moment you
-  opened it, and ask the client for every name, icon and item quality at once, so it appeared
-  wrong and settled a second later. Each group opens on its own now, and they all start shut.
-- **The panel is drawn with the client's own nine-slice**, so its corners are crisp at any size
-  instead of being one stretched texture.
 
 - **Clicking Mining or Fishing no longer throws the guide across the screen.** It let go of the
   profession window and went back to wherever you had last dragged it, which from your side is
@@ -187,18 +244,6 @@
   after the guide has anchored can still overlap until the next time it anchors.
 
 ### Fixes
-
-- **The Route tab is readable.** Eight paragraphs of notes sat under the route; what is left is
-  the total and a legend for the markers actually on screen, with the reasons on a hover.
-- **Trainer steps can be read.** "Train Expert Blacksmithing (..." was cut off and had no hover,
-  so there was no way to see the rest of it. It answers a hover now.
-
-- **Training pet skills works again.** Skillwright reads what a trainer teaches, and to see the
-  services your own filters hide it turns those filters on for a moment. It was doing that at
-  EVERY trainer - class, pet, riding - and changing a filter from an addon makes the client refuse
-  the Train button afterwards and tell you to disable your addons. It was not an error anyone
-  could report, because nothing errored. It now only touches a trainer that teaches a profession
-  it plans for, and only reads the rest.
 
 - **Opening Mining, Herbalism or Fishing now gets the guide out of the way.** It used to sit there
   showing the last crafting profession's route beside a window it has nothing to do with. If the
