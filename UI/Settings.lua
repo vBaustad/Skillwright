@@ -88,8 +88,14 @@ function Page.Build(f)
     title:SetJustifyH("LEFT")
     title:SetText(("Skillwright %sv%s|r"):format(GREY, SW.VERSION))
     place(title, 4, 6)
-    text("The cheapest or fastest route to max profession skill, planned from the game's own recipe data and "
-        .. "your prices.", "GameFontHighlight", 4, 4)
+    local subtitle = text("The cheapest or fastest route to max profession skill, planned from the game's "
+        .. "own recipe data and your prices.", "GameFontHighlight", 4, 4)
+    -- Options > AddOns puts an "Open the guide" button in this corner. Only the first two lines run
+    -- that high, so only they give way to it - the rest of the page uses the full width.
+    f.subtitle = subtitle
+    if f.headerRight then
+        subtitle:SetPoint("RIGHT", p, "RIGHT", -8 - f.headerRight, 0)
+    end
 
     -- Route: what the plan looks like
     heading("Route")

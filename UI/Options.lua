@@ -10,18 +10,24 @@ local function Build()
     local panel = CreateFrame("Frame")
     panel.name = "Skillwright"
 
-    -- The page itself (title, settings, YippYapp link, footer) is the same as the guide's Settings tab.
-    local open = U.Button(panel, "Open the guide", 130, 22)
-    open:SetPoint("TOPRIGHT", -14, -12)
-    open:SetFrameLevel(panel:GetFrameLevel() + 10)
-    open:SetScript("OnClick", function()
-        SW.ShowWindow(nil, "now")
-    end)
-
+    -- The page itself (title, settings, YippYapp link, footer) is the same as the guide's Settings
+    -- tab, which has no "open the guide" button because you are already in it.
     content = CreateFrame("Frame", nil, panel)
     content:SetPoint("TOPLEFT", 12, -10)
     content:SetPoint("BOTTOMRIGHT", -8, 8)
+    -- Room for the button beside the title, so the page's own text does not wrap under it.
+    content.headerRight = 138
     SW.SettingsPage.Build(content)
+
+    -- Inside the scrolling page, not floating over it: anchored to the panel it covered the
+    -- scrollbar, and everything that scrolled past went underneath it.
+    local open = U.Button(content.sf.child, "Open the guide", 130, 22)
+    open:SetPoint("TOPRIGHT", content.sf.child, "TOPRIGHT", -4, -4)
+    open:SetScript("OnClick", function()
+        SW.ShowWindow(nil, "now")
+    end)
+    content.openButton = open
+    panel.content = content          -- a handle, so the layout can be asked about from a test
 
     -- Settings adopts the panel already "shown", so its own OnShow may never fire: refresh from the panel's
     -- OnRefresh, from a child's OnShow, and once now.
