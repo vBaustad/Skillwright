@@ -162,10 +162,10 @@ function Plan.Options(prof, from)
         learnRanks = db.learnRanks,
         vendorPrices = db.vendor,
         market = SW.Prices.Market,
-        -- Recipes that can only be made standing at one of Forever's workstations - a Loom, a
-        -- Master Forge - stay out of the route, because the plan cannot know the player will
-        -- travel to one. Plan.GapStations names them when that is what ends the route.
-        allowCamp = false,
+        -- Recipes that need one of Forever's workstations, and the rank this profession can
+        -- BUILD each station at. You make the station and carry it; we used to drop all nine
+        -- without looking, which cost Tailoring 45 skill for a Spinning Wheel it makes at 140.
+        stationRank = Plan.StationRanks(prof),
         preferVendor = s.preferVendor,
         owned = Plan.OwnedTools(),
         haveMats = s.useOwned ~= false and Plan.HaveMats(prof) or nil,
@@ -173,6 +173,27 @@ function Plan.Options(prof, from)
         prefer = SW.CharProf(prof).prefer,
         faction = UnitFactionGroup and UnitFactionGroup("player") or nil,
     }
+end
+
+-- The Forever workstations this profession can make for itself, and the rank it can make each
+-- one at. Six of the nine need 300 in the profession that uses them - the rank alone keeps those
+-- out of a levelling route, which is why no flag is needed any more.
+local stationRankCache = {}
+function Plan.StationRanks(prof)
+    local cached = stationRankCache[prof]
+    if cached then return cached end
+    local out = {}
+    local data = SW.Data.professions[prof]
+    if data then
+        local rankOf = {}
+        for _, r in ipairs(data[2]) do rankOf[r[1]] = r[4] end
+        for station, made in pairs(SW.STATION_CRAFT) do
+            local rank = rankOf[made[1]]
+            if rank and rank > 0 then out[station] = rank end
+        end
+    end
+    stationRankCache[prof] = out
+    return out
 end
 
 -- Materials this profession's recipes use, worked out once per profession.
@@ -242,6 +263,14 @@ function Plan.OwnedTools()
             end
         end
     end
+    -- A station is an item you craft and carry. Placing it may consume it and nothing reports a
+    -- placed object, so seeing it once is the only chance we get to know the player has one.
+    for station, made in pairs(SW.STATION_CRAFT or {}) do
+        if Plan.Count(made[2], true) > 0 then
+            owned[made[2]] = true
+            SW.MarkStationBuilt(station)
+        end
+    end
     table.sort(sig)
     local text = table.concat(sig, ",")
     ownedCache = { bags = Plan.bagSig or 0, owned = owned, sig = text }
@@ -252,7 +281,8 @@ end
 function Plan.PendingTool(step, owned)
     owned = owned or Plan.OwnedTools()
     for _, t in ipairs(step.prereqs or {}) do
-        if not SW.Solver.HasTool(t.category, owned) then return t end
+        -- not HasTool: a station prereq has no tool category, and HasTool(nil, ...) errors
+        if not SW.Solver.PrereqDone(t, owned) then return t end
     end
 end
 
@@ -666,27 +696,31 @@ function Plan.Trainable(prof)
     return { now = now, recipe = recipe, soon = soon, dead = dead, rank = rank }
 end
 
--- WHAT ENDS THE ROUTE, when a workstation does. The card used to say the route stopped because
--- "no trainer recipe gives skill past that" and blame recipes from unknown drops. For the three
--- professions where a route really does stop, that is not it: Tailoring has 43 Loom recipes and 27
--- Spinning Wheel ones still live past where it ends, Leatherworking 91 Sewing Machine, and
--- Blacksmithing 62 Master Forge. We have carried the station on every recipe from the start and
--- never shown it once.
+-- WHAT ENDS THE ROUTE, when a workstation does - and it is never "you would have to travel to
+-- one", which is what this said first. You BUILD the station. What stops Blacksmithing at 285 is
+-- that making a Master Forge needs 300 Blacksmithing, the rank the route was trying to reach: the
+-- 62 recipes behind it can only ever be used by someone who no longer needs them. A station the
+-- profession can build in time is not a gap at all, it is a step, and the route now contains it.
 function Plan.GapStations(prof, past)
     local data = SW.Data.professions[prof]
     if not (data and past) then return nil end
-    local count, best = {}, {}
+    local ranks = Plan.StationRanks(prof)
+    local count, best, needs = {}, {}, {}
     for _, r in ipairs(data[2]) do
         local station = r[9]
-        if r[12] and SW.STATIONS[station] and (r[6] or 0) > past then
+        local build = ranks[station]
+        -- only the ones still out of reach: a station you could already have built is not what
+        -- ends the route, and saying it was would be the same mistake in the other direction
+        if r[12] and SW.STATIONS[station] and (r[6] or 0) > past and (not build or build > past) then
             local name = SW.STATIONS[station]
             count[name] = (count[name] or 0) + 1
             best[name] = math.max(best[name] or 0, r[6])
+            needs[name] = build
         end
     end
     local out = {}
     for name, n in pairs(count) do
-        out[#out + 1] = { name = name, count = n, to = best[name] }
+        out[#out + 1] = { name = name, count = n, to = best[name], build = needs[name] }
     end
     if #out == 0 then return nil end
     table.sort(out, function(a, b) return a.to > b.to end)
@@ -988,7 +1022,7 @@ function Plan.Shopping(prof)
                 if unit then g.cost = g.cost + qty * unit else g.unpriced = (g.unpriced or 0) + 1 end
             end
             for _, t in ipairs(s.prereqs or {}) do
-                if not SW.Solver.HasTool(t.category, owned) then
+                if not SW.Solver.PrereqDone(t, owned) then
                     if t.buy then
                         add(t.item, 1, t.cost or 0, "vendor")
                     else
@@ -1036,7 +1070,7 @@ function Plan.Remaining(prof)
             cost = cost + n * each
             if not known then priced = false end
             for _, t in ipairs(s.prereqs or {}) do
-                if not SW.Solver.HasTool(t.category, owned) then cost = cost + (t.cost or 0) end
+                if not SW.Solver.PrereqDone(t, owned) then cost = cost + (t.cost or 0) end
             end
         end
     end

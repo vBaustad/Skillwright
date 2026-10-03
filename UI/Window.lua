@@ -1361,14 +1361,15 @@ local function RefreshRoute(f)
         end
         if s and s.to > rank then
             drawnSteps = drawnSteps + 1
-            -- tools this step needs that you don't have yet
+            -- what this step needs before it can be crafted at all: a tool you don't have, or
+            -- the workstation it is made at - which you build, and which the route never said
             for _, t in ipairs(s.prereqs or {}) do
-                if not SW.Solver.HasTool(t.category, owned) then
+                if not SW.Solver.PrereqDone(t, owned) then
                     n = n + 1
                     local r = RouteRow(f, n)
                     r.bg:Hide()
                     r.icon:SetTexture(U.ItemIcon(t.item))
-                    r.range:SetText("|cffffd100tool|r")
+                    r.range:SetText(t.station and "|cffffd100build|r" or "|cffffd100tool|r")
                     r.text:SetText(("%s %s"):format(t.buy and "Buy" or "Make", ItemText(t.item)))
                     r.right:SetText(("x1  %s"):format(Cost(t.cost or 0, false)))
                     r.tipItem, r.tipSpell, r.tipExtra = t.item, t.spell, nil
@@ -1485,9 +1486,13 @@ local function RefreshRoute(f)
             end
             notes[#notes + 1] = ("|cff8a8a8aEnds at|r |cffffd100%d|r|cff8a8a8a - past that you "
                 .. "need|r %s"):format(route.gapAt, table.concat(bits, ", "))
-            why[#why + 1] = ("The recipes that would carry it further can only be made standing at "
-                .. "a workstation, and the plan cannot assume you will travel to one. They are in "
-                .. "the list below, under the group for what you have the skill for.")
+            local gate = stations[1] and stations[1].build
+            why[#why + 1] = gate
+                and (("The recipes that would carry it further are made at a %s, and building one "
+                      .. "needs %d in this profession - the rank the route is trying to reach. They "
+                      .. "are in the list below."):format(stations[1].name, gate))
+                or ("The recipes that would carry it further are made at a workstation this "
+                    .. "profession has no recipe for. They are in the list below.")
         else
             notes[#notes + 1] = ("|cff8a8a8aThe route ends at|r |cffffd100%d|r|cff8a8a8a.|r")
                 :format(route.gapAt)

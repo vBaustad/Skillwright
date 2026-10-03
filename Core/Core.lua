@@ -40,6 +40,38 @@ SW.STATIONS = {
     [2266] = "Arcane Forge",     [2267] = "Anarchist's Workbench",
 }
 
+-- How each of those is MADE: { spell, item }. The player builds the station and carries it - none of
+-- this is somewhere you travel to, which is what we assumed when we dropped every recipe that needs
+-- one. Three are made at 140 and reach a levelling player; the other six need 300 in the same
+-- profession the route is trying to carry to 300, so the rank excludes them without a flag.
+SW.STATION_CRAFT = {
+    [2248] = { 1263005, 279970 },  -- Fermenter, made at 140
+    [2249] = { 1263031, 279941 },  -- Tanning Rack, made at 140
+    [2250] = { 1263032, 279943 },  -- Spinning Wheel, made at 140
+    [2256] = { 1263056, 279985 },  -- Arcane Salvager, made at 140
+    [2257] = { 1263067, 279982 },  -- Iron Oven, made at 300
+    [2261] = { 1263073, 279955 },  -- Master Forge, made at 300
+    [2263] = { 1263078, 279990 },  -- Alchemy Laboratory, made at 300
+    [2264] = { 1263079, 279945 },  -- Sewing Machine, made at 300
+    [2265] = { 1263080, 279959 },  -- Loom, made at 300
+    [2266] = { 1263082, 279987 },  -- Arcane Forge, made at 300
+    [2267] = { 1263083, 279989 },  -- Anarchist's Workbench, made at 300
+}
+
+-- Placing a station may well consume the item, and nothing in the API reports a placed object. So
+-- the first time one is seen in the bags it is remembered, and the route stops asking for it.
+function SW.StationBuilt(station)
+    local built = SW.CharDB().stationsBuilt
+    return (built and built[station]) == true
+end
+
+function SW.MarkStationBuilt(station)
+    local db = SW.CharDB()
+    if not db then return end
+    db.stationsBuilt = db.stationsBuilt or {}
+    db.stationsBuilt[station] = true
+end
+
 SW.ALL_LINES = { [164] = true, [165] = true, [171] = true, [182] = true, [185] = true, [186] = true,
                  [197] = true, [202] = true, [333] = true, [356] = true, [393] = true, [129] = true }
 

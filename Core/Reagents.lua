@@ -48,8 +48,16 @@ local function BuildNeeded()
                 if s.to > rank then
                     for _, m in ipairs(s.mats or {}) do needed[m.id] = true end
                     for _, t in ipairs(s.prereqs or {}) do
-                        for _, id in ipairs(SW.Solver.ToolItems(t.category) or {}) do tools[id] = true end
-                        for i = 1, #(t.mats or {}), 2 do needed[t.mats[i]] = true end
+                        -- a station prereq has no tool category, and ToolItems(nil) errors
+                        if t.category then
+                            for _, id in ipairs(SW.Solver.ToolItems(t.category) or {}) do tools[id] = true end
+                        elseif t.item then
+                            tools[t.item] = true
+                        end
+                        -- these mats are a list of { id = ... }, not a flat id/count pair
+                        -- list: stepping by two keyed `needed` by a TABLE, so no prereq
+                        -- material has ever counted as one the route is waiting for
+                        for _, m in ipairs(t.mats or {}) do needed[m.id] = true end
                     end
                 end
             end

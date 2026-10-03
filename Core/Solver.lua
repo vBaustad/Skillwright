@@ -142,7 +142,16 @@ function Solver.Color(yellow, grey, rank)
 end
 
 -- Returns learnRank, isEstimate
-function Solver.LearnRank(r, opts, fallback)
+-- The rank at which this profession could build the station a recipe needs, when it needs one.
+-- Six of the nine stations need 300 in the profession that uses them, so this is also what keeps
+-- their recipes out of a levelling route - no flag, just the rank.
+local function stationRank(r, opts)
+    if not r[F_CAMP] then return nil end
+    return opts and opts.stationRank and opts.stationRank[r[F_STATION]]
+end
+Solver.StationRank = stationRank
+
+local function baseLearnRank(r, opts, fallback)
     local spell = r[F_SPELL]
     local known = opts.learnRanks and opts.learnRanks[spell]
     if known then return known, false end
@@ -158,12 +167,25 @@ function Solver.LearnRank(r, opts, fallback)
     return max(1, guess), true
 end
 
+--- When the recipe can first be used. A recipe needing a workstation cannot be used before the
+--- player can BUILD that station, however early the trainer teaches the recipe itself - and knowing
+--- the recipe already does not change that either, which is why the gate sits outside every return.
+function Solver.LearnRank(r, opts, fallback)
+    local rank, est = baseLearnRank(r, opts, fallback)
+    local station = stationRank(r, opts)
+    if station and station > rank then return station, est end
+    return rank, est
+end
+
 -- Recipes only one faction can learn (the data lists both as trainer recipes).
 local FACTION_ONLY = { [1229504] = "Horde", [1263425] = "Alliance" }   -- Faction Banner
 
 -- Whether a recipe may be used at all (source + station rules), independent of rank.
 local function usable(r, opts)
-    if r[F_CAMP] and not opts.allowCamp then return false end
+    -- Not "this needs a station, so no". You build the station; the only recipes genuinely out of
+    -- reach are the ones whose station this profession has no recipe for. LearnRank holds the rest
+    -- back to the rank where the station can be made.
+    if r[F_CAMP] and not stationRank(r, opts) then return false end
     if opts.known and opts.known[r[F_SPELL]] then return true end
     local only = FACTION_ONLY[r[F_SPELL]]
     if only and opts.faction and opts.faction ~= only then return false end
@@ -340,7 +362,7 @@ function Solver.Interchangeable(prof, rank, opts)
     local price = Solver.NewPricer(prof, opts)
     local out = {}
     for _, r in ipairs(data[2]) do
-        if opts.known[r[F_SPELL]] and not (r[F_CAMP] and not opts.allowCamp) then
+        if opts.known[r[F_SPELL]] and not (r[F_CAMP] and not stationRank(r, opts)) then
             local seen = opts.colors and opts.colors[r[F_SPELL]]
             local yellow = (seen and seen.yellow) or r[F_YELLOW]
             local grey = (seen and seen.grey) or r[F_GREY]
@@ -401,6 +423,18 @@ local function hasTool(cat, owned)
 end
 Solver.HasTool = hasTool
 
+--- Whether a step's prerequisite is already met. Tools are answered by the bags; a station is an
+--- item too, but placing one may consume it and nothing reports a placed object, so having built it
+--- once counts. Not HasTool for both: a station prereq has no category, and HasTool(nil, ...) errors
+--- on the cache write before it can return anything.
+function Solver.PrereqDone(t, owned)
+    owned = owned or {}
+    if t.station then
+        return owned[t.item] == true or (SW.StationBuilt and SW.StationBuilt(t.station) or false)
+    end
+    return hasTool(t.category, owned)
+end
+
 -- How a tool category can be had at `rank`: "owned", { maker = recipe, id } or { buy = itemID, price }, or nil.
 local function toolHow(cat, rank, ctx, depth)
     if hasTool(cat, ctx.owned) then return "owned" end
@@ -429,7 +463,7 @@ end
 function Solver.GapOptions(prof, rank, opts, price, limit)
     local list = {}
     for _, r in ipairs(SW.Data.professions[prof][2]) do
-        if not usable(r, opts) and not (r[F_CAMP] and not opts.allowCamp) then
+        if not usable(r, opts) and not (r[F_CAMP] and not stationRank(r, opts)) then
             local learn = Solver.LearnRank(r, opts, true)
             local p = Solver.Chance(r[F_YELLOW], r[F_GREY], rank)
             if learn <= rank and p >= 0.5 then
@@ -478,7 +512,7 @@ end
 --   haveMats      { [item] = true } materials already in the bags or bank, worth counting as good as owned
 --   owned         { [item] = true } tools the character already has
 --   breaks        { [rank] = true } ranks no step may run through (trainer visits)
---   allowCamp     include recipes that need a camp station
+--   stationRank   { [station] = rank } the rank this profession can BUILD each workstation at
 -- Returns { steps = { step, ... }, crafts = n, cost = copper, gapAt = rank|nil }
 -- step = { from, to, spell, item, qty, crafts, mats = { {id, count, per, unit, priceSource}, ... }, cost, source,
 --          learn, learnEstimated, vendorOnly, prereqs = { tool, ... } }
@@ -780,12 +814,33 @@ function Solver.Solve(prof, opts)
     end
 
     local costKnown = true
+    -- Station crafts come from the raw rows, not from bySpell: they are made from plans, so they
+    -- are not usable candidates and never entered it. Looking there found nothing, which is how
+    -- the route came to use 74 Spinning Wheel recipes without ever naming a Spinning Wheel.
+    local stationOf, stationRow = {}, {}
+    for st, made in pairs(SW.STATION_CRAFT or {}) do stationOf[made[1]] = st end
+    for _, r in ipairs(data[2]) do
+        local st = stationOf[r[F_SPELL]]
+        if st then stationRow[st] = r end
+    end
+    local builtStation = {}
     for _, s in ipairs(steps) do
         s.crafts = ceil(s.attempts - 1e-6)
         s.cost = s.costEach and s.crafts * s.costEach or nil
         s.mats = matsOf(bySpell[s.spell].r, s.crafts, price)
         s.prereqs = {}
         for _, cat in ipairs(s.tools or {}) do addTool(s.prereqs, cat, s.from) end
+        -- The station a step needs, once, before the first step that needs it. Without this the
+        -- Tailoring route reached 300 through 74 Spinning Wheel crafts and never mentioned a wheel.
+        local mr = s.station and stationRow[s.station]
+        if mr and not builtStation[s.station] then
+            builtStation[s.station] = true
+            local learn, est = Solver.LearnRank(mr, opts)
+            s.prereqs[#s.prereqs + 1] = { station = s.station, item = mr[F_ITEM], spell = mr[F_SPELL],
+                                          qty = mr[F_QTY], source = mr[F_SRC], learn = learn,
+                                          learnEstimated = est, yellow = mr[F_YELLOW], grey = mr[F_GREY],
+                                          mats = matsOf(mr, 1, price), cost = craftCost(mr, price) }
+        end
         total = total + s.crafts
         if s.cost then cost = cost + s.cost else costKnown = false end
         for _, t in ipairs(s.prereqs) do cost = cost + (t.cost or 0) end
