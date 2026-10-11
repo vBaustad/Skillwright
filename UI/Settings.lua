@@ -70,7 +70,9 @@ function Page.Build(f)
     local function heading(str)
         return place(U.Heading(p, str), 2, 18)
     end
-    -- A checkbox with its explanation in grey underneath. key = a Settings() field.
+    -- A checkbox, with whatever needs explaining behind an (i) beside it. key = a Settings()
+    -- field. The explanation used to be two or three grey lines under every switch, which turned
+    -- a page of nine switches into a page of prose you scroll through to find them.
     local function checkbox(label, key, explain, after)
         local cb = U.Checkbox(p, label)
         cb.key = key
@@ -80,7 +82,11 @@ function Page.Build(f)
         end)
         f.checks[#f.checks + 1] = cb
         place(cb, 4, 8)
-        if explain then text(GREY .. explain .. "|r", "GameFontHighlightSmall", 32, 0) end
+        if explain then
+            cb.info = U.Info(p, label, explain)
+            cb.info:SetPoint("LEFT", cb.label, "RIGHT", 4, 0)
+        end
+        return cb
     end
 
     -- Title and what it is
@@ -111,14 +117,16 @@ function Page.Build(f)
     }, 180, function(v) SW.SetMode(v) end)
     f.mode:SetPoint("LEFT", 70, 0)
 
-    -- Fastest counts crafts. The two sentences that used to follow this one described a
-    -- tolerance and then a material tie-break, and both are gone: the user's rule is that
-    -- Fastest does not read price of any kind, and "which materials are easier to come by"
-    -- was vendor sell value wearing a friendlier name.
-    text("|cffffd100Fastest|r is the fewest crafts, and never more than that. It reads no prices "
-        .. "at all and asks nothing about your gold - it assumes you can buy or farm what a step "
-        .. "needs - so the Fastest route is the same for everyone. |cffffd100Cheapest|r is the mode "
-        .. "that spends your money, and the one that asks what things cost.", nil, 4, 4)
+    -- Fastest counts crafts. The two sentences that used to be here described a tolerance and
+    -- then a material tie-break, and both are gone: the user's rule is that Fastest does not read
+    -- price of any kind, and "which materials are easier to come by" was vendor sell value wearing
+    -- a friendlier name. What is left sits on the (i), not above the buttons it describes.
+    local modeInfo = U.Info(modeRow, "Plan for",
+        "Fastest is the fewest crafts, and never more than that. It reads no prices at all and asks "
+        .. "nothing about your gold - it assumes you can buy or farm what a step needs - so the "
+        .. "Fastest route is the same for everyone.\n\nCheapest is the mode that spends your money, "
+        .. "and the one that asks what things cost.")
+    modeInfo:SetPoint("LEFT", f.mode, "RIGHT", 6, 0)
     checkbox("Prefer materials from vendors", "preferVendor",
         "Recipes whose materials you can simply buy come first, even if that means a few more crafts.",
         function() Plan.Invalidate() end)
@@ -189,9 +197,10 @@ function Page.Build(f)
         end)
         place(cb, 4, 8)
         f.minimapCheck = cb
-        text(GREY .. "YippYapp addons share one minimap button. This is whether Skillwright is in it - "
-            .. "the guide also opens from your profession window and from |cffffd100/skw|r.|r",
-            "GameFontHighlightSmall", 32, 0)
+        cb.info = U.Info(p, "Show Skillwright on the minimap",
+            "YippYapp addons share one minimap button. This is whether Skillwright is in it - the "
+            .. "guide also opens from your profession window and from /skw.")
+        cb.info:SetPoint("LEFT", cb.label, "RIGHT", 4, 0)
     end
     text(GREY .. "|cffffd100/skw|r opens the guide, |cffffd100/skw config|r these settings.\n"
         .. "Part of YippYapp - addons for WoW: Forever that work even better together.|r", nil, 4, 12)

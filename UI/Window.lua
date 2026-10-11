@@ -2313,31 +2313,18 @@ local function Build()
     win.art:SetAlpha(0.5)
     win.atlasOK = atlas
 
-    -- THE PANEL, nine-sliced. common-insideframe is one texture stretched to fit: its corner art
-    -- distorts at any size but the one it was drawn for, and its top edge is a single unbroken
-    -- line, which is why a tab laid over it leaves a break rather than merging into it.
-    -- InsetFrameTemplate is the client's own nine-slice - corners at their true size, edges
-    -- stretched one way only - so it is right at any size and its top edge is drawn in pieces.
-    local ok, inset = pcall(CreateFrame, "Frame", nil, win.body, "InsetFrameTemplate")
-    if ok and inset then
-        inset:SetPoint("TOPLEFT", 0, 0)
-        inset:SetPoint("BOTTOMRIGHT", 0, 0)
-        inset:SetFrameLevel(math.max(0, win.body:GetFrameLevel() - 1))
-        -- The template brings an opaque fill with it, and it was sitting on the profession drawing.
-        -- We want its EDGES - the nine-slice - and nothing else.
-        for _, fill in ipairs({ inset.Bg, inset.bg, inset.Center, inset.Background }) do
-            if fill and fill.Hide then fill:Hide() end
-        end
-        win.inset = inset
-    else
-        -- no template in this client: keep the texture rather than hand-draw a copy of Blizzard's
-        -- art, which would be wrong the first time they change it
-        SW.dbg("no InsetFrameTemplate - falling back to the flat border")
-        win.inset = win.body:CreateTexture(nil, "BORDER")
-        win.inset:SetPoint("TOPLEFT", 0, 0)
-        win.inset:SetPoint("BOTTOMRIGHT", 0, 0)
-        atlas(win.inset, "common-insideframe")
-    end
+    -- THE PANEL. This was InsetFrameTemplate for a while - the client's own nine-slice, whose
+    -- corners hold their true size at any window size, where common-insideframe is one texture
+    -- stretched to fit. The reason for the trade was that a nine-slice draws its top edge in
+    -- pieces, so the selected tab could be made to break the edge and merge into the panel.
+    -- That was never built. What the trade actually cost was visible immediately: the template
+    -- is Blizzard's plain inset, and the user said so - "den er veldig stygg na. og har ikke de
+    -- finere broderingene". Stretched corner art that looks right beats correct corner art that
+    -- looks like nothing, so the texture is back until there is a reason to give it up again.
+    win.inset = win.body:CreateTexture(nil, "BORDER")
+    win.inset:SetPoint("TOPLEFT", 0, 0)
+    win.inset:SetPoint("BOTTOMRIGHT", 0, 0)
+    atlas(win.inset, "common-insideframe")
 
     -- "No auction prices yet": a strip above the tabs' content while there is nothing to cost a route with
     local note = CreateFrame("Frame", nil, win)

@@ -67,6 +67,28 @@ function U.Checkbox(parent, label)
     return cb
 end
 
+--- A small (i) that answers on hover. The settings page used to print two or three grey lines
+--- under every switch - nine switches of that is a page you scroll past instead of reading.
+--- Drawn with text rather than a texture on purpose: there is no (i) in this client's atlas table,
+--- and the art files are not in our extract, so a texture name here could only be a guess.
+function U.Info(parent, title, tip)
+    local b = CreateFrame("Button", nil, parent)
+    local fs = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    fs:SetPoint("CENTER")
+    fs:SetText("|cff8a8a8a(|r|cffffd100i|r|cff8a8a8a)|r")
+    b:SetSize((fs:GetStringWidth() or 12) + 4, 16)
+    b.fs, b.title, b.tip = fs, title, tip
+    b:SetScript("OnEnter", function(self)
+        if not self.tip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.title then GameTooltip:AddLine(self.title, 1, 0.82, 0.3) end
+        GameTooltip:AddLine(self.tip, 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
 -- Two or more choices in a row, like the Options panel's category list.
 function U.Segmented(parent, items, width, onSelect)
     local ctl = CreateFrame("Frame", nil, parent)
