@@ -1,5 +1,16 @@
 # Skillwright for WoW: Forever
 
+## 0.2.0-beta3
+
+- **The settings page is switches again.** Every one of the nine had two or three grey lines of
+  explanation printed under it, so the switches were the thing you scrolled past looking for
+  switches. The words are all still there, on an (i) beside each one - including the
+  four lines that used to sit above Cheapest and Fastest.
+
+- **The border inside the window is the ornate one again.** 0.2.0-beta2 shipped with a plain,
+  flat panel edge in place of the finer corner art. That was not deliberate - it came in with a
+  change meant to let a tab merge into the top of the panel, which was never finished.
+
 ## 0.2.0-beta2
 
 ### Where things live
@@ -18,14 +29,6 @@
   the icon is in the shared YippYapp minimap button - is a checkbox on Skillwright's own settings
   page. The guide still opens from your profession window, the minimap and /skw.
 
-- **The settings page is switches again.** Every one of the nine had two or three grey lines of
-  explanation printed under it, so the switches were the thing you scrolled past looking for
-  switches. The words are all still there, on an (i) beside each one - including the
-  four lines that used to sit above Cheapest and Fastest.
-
-- **The border inside the window is the ornate one again.** 0.2.0-beta2 shipped with a plain,
-  flat panel edge in place of the finer corner art. That was not deliberate - it came in with a
-  change meant to let a tab merge into the top of the panel, which was never finished.
 
 ### Tooltips
 
