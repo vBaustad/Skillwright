@@ -115,14 +115,27 @@ end)
 -- "Do you want to replace X with Y?" - accept it for our own enchants when the setting is on.
 -- The profession window raises REPLACE_TRADESKILL_ENCHANT (answered by C_Item.ReplaceTradeskillEnchant);
 -- REPLACE_ENCHANT is the enchant-from-the-bag path.
+-- A player reported the popup still appearing and worked around it with a macro that clicks
+-- StaticPopup1Button1. Four conditions have to hold at once and all four used to fail in
+-- silence, so "it still pops up" could not be told apart from "it declined, for a reason".
+-- With the setting on, each refusal now says which one it was in /skw debug.
 local function AutoAccept(popup, accept)
     return function()
         if not SW.Settings().autoReplaceEnchant then return end
-        if not armedSpell or GetTime() > armedUntil then return end
+        if not armedSpell or GetTime() > armedUntil then
+            SW.dbg("%s: not ours - this craft was started somewhere else", popup)
+            return
+        end
         -- gear you are wearing always asks: its enchant is probably one you want to keep
-        if armedWorn then return end
+        if armedWorn then
+            SW.dbg("%s: the target is equipped, so it asks", popup)
+            return
+        end
         -- only while our Craft click is still running: outside a click the game blocks the answer
-        if not E.inClick then return end
+        if not E.inClick then
+            SW.dbg("%s: outside our own click, where the game blocks the answer", popup)
+            return
+        end
         accept()
         C_Timer.After(0, function() StaticPopup_Hide(popup) end)
     end

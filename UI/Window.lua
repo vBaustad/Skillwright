@@ -2561,7 +2561,20 @@ local function BuildHostTab()
     _G.SkillwrightHostButton = hostTab      -- the name the tests and /skw know it by
     hostTab.Icon:SetTexture("Interface\\AddOns\\Skillwright\\Media\\minimap")
     hostTab.tooltipText = "Skillwright"
-    hostTab:SetScript("OnClick", function()
+    -- TAINT. A player sent ADDON_ACTION_BLOCKED: Blizzard's own OnClick called Frame:Hide()
+    -- and the game refused, because the frame it ran on is one an addon created. The template
+    -- does not reach its handler through SetScript - customMouseUpHandler calls self:OnClick(),
+    -- a method - so replacing the SCRIPT left their METHOD in place and it ran on our tab.
+    -- Replacing the method is what keeps their code off our frame. Both entry points are wired
+    -- to the same function, and it runs once per click whichever of them arrives.
+    -- Not a clock: comparing GetTime() to a start value of 0 suppressed the very first click,
+    -- because that is what GetTime returns before the game has run a frame. A flag cleared on
+    -- the next frame collapses one click into one call however many handlers it arrives by.
+    local firing = false
+    local function Activate()
+        if firing then return end
+        firing = true
+        C_Timer.After(0, function() firing = false end)
         if SW.WindowShown() then
             SW.CloseWindow()    -- pressing the tab to close is the player deciding, and it sticks
             return
@@ -2582,7 +2595,9 @@ local function BuildHostTab()
         end
         win.autoShown = false   -- they asked for it by hand; it does not vanish with the host
         SW.UpdateHostButton()
-    end)
+    end
+    hostTab:SetScript("OnClick", Activate)
+    hostTab.OnClick = function() Activate() end
 end
 
 -- Place it under the last profession tab, and keep it there when that number changes.

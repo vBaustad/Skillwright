@@ -183,8 +183,9 @@ function Page.Build(f)
     -- Enchanting
     heading("Enchanting")
     checkbox("Say Yes to \"replace enchant\" automatically", "autoReplaceEnchant",
-        "When the Craft button enchants an item that already has an enchant. Never for gear you are wearing, "
-        .. "and never for anything you enchant yourself.")
+        "Only for enchants you start from Skillwright's own Craft button. One you start in the "
+        .. "profession window always asks, because there we do not know what you picked - and gear "
+        .. "you are wearing always asks either way, since that enchant is probably one you want.")
 
     -- YippYapp: one grouped minimap button for the suite, and whether we are in it. Not a Settings()
     -- field - the library owns that state - so it is set and read on its own, not through f.checks.

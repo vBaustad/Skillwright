@@ -1,5 +1,24 @@
 # Skillwright for WoW: Forever
 
+## Unreleased
+
+### Fixes
+
+- **The Skillwright tab on the profession window no longer causes an "action blocked" error.**
+  The tab is built from Blizzard's own profession-tab template so that it matches the others,
+  and the template was still running a piece of Blizzard's code on it when pressed. Because the
+  tab belongs to an addon, the game refused that code permission to hide things, and anyone with
+  an error display saw it every time they used the tab.
+
+### Enchanting
+
+- **"Say Yes to replace enchant automatically" says what it covers.** It applies to enchants you
+  start from Skillwright's own Craft button, and not to one you start in the profession window -
+  there we have not been told which item you picked, so we cannot tell a spare from the one you
+  are wearing. Gear you are wearing always asks either way. The setting is off until you turn it
+  on. With it on, /skw debug now says which of those rules declined, instead of the
+  box simply appearing.
+
 ## 0.2.0-beta3
 
 - **The settings page is switches again.** Every one of the nine had two or three grey lines of
