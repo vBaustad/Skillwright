@@ -1,6 +1,6 @@
 # Skillwright for WoW: Forever
 
-## Unreleased
+## 0.2.0-beta4
 
 ### Fixes
 
