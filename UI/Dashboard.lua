@@ -136,8 +136,8 @@ function D.Build(f, onPick)
     for _, info in ipairs(CARDS) do f.cards[#f.cards + 1] = Card(p, info, onPick) end
     f.learn = text(GOLD .. "Learn one|r at a profession trainer (every capital city has them) and Skillwright plans "
         .. "your route from there: what to craft, how many and what it costs - the cheapest or the fastest way to 300.")
-    f.beta = text(GOLD .. "Beta:|r " .. GREY .. "WoW: Forever is newly released and still in beta. Professions and "
-        .. "recipes may change, and the guides will get better as we learn more.|r")
+    f.beta = text(GOLD .. "New game:|r " .. GREY .. "WoW: Forever has only just launched. Professions and "
+        .. "recipes may still change, and the guides will get better as we learn more.|r")
 end
 
 local function Names(list)

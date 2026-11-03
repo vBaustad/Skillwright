@@ -1,5 +1,9 @@
 # Skillwright for WoW: Forever
 
+## 1.0.0
+
+- **Out of beta, for the launch of WoW: Forever.** The note under the profession picker no longer says the game is in beta; apart from that, Skillwright is the same as 0.2.0-beta4. It has been checked against the game's newest client, build 1.60.1.70707, and nothing in it changes what Skillwright uses.
+
 ## 0.2.0-beta4
 
 ### Fixes
