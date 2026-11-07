@@ -15,6 +15,9 @@ what you're short of (with a confirmation), at a trainer it learns the recipes o
 you can pick the item to enchant. Where trainer recipes stop giving skill, it lists the recipes that would
 carry you on.
 
+In the profession window's own recipe list, a gold `*` marks every recipe you could make once you buy the
+vendor materials: everything else it needs is already in your bags.
+
 ## Using it
 
 - Open your profession window, or click the Skillwright icon on the minimap (grouped behind the YippYapp

@@ -285,6 +285,9 @@ local DEFAULTS = {
         -- Lines on other people's tooltips are someone else's screen. Both off until asked for.
         tooltipPrice = false,    -- one line on item tooltips: the auction price, and where it came from
         tooltipDisenchant = false, -- one line for an enchanter: what items like this have disenchanted into
+        -- A * in the profession window's recipe list: you have everything but the vendor materials.
+        -- On: it is a mark in a list, it acts for nobody, and the player asked for it (2026-11-07).
+        recipeMarks = true,
     },
     learnRanks = {},             -- [recipeSpellID] = skill needed, read off trainers
     trainerSeen = {},            -- [recipeSpellID] = true when a trainer offers it

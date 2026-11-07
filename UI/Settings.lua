@@ -174,6 +174,13 @@ function Page.Build(f)
         .. "counted from your own disenchants, not a table. Nothing is shown until there is something "
         .. "to show.")
 
+    -- Blizzard's profession window
+    heading("Profession window")
+    checkbox("Mark what you can make with a *", "recipeMarks",
+        "A gold * beside every recipe you have all the materials for, apart from what a vendor sells. "
+        .. "With Blizzard's [3] beside it you can make it now; without, buy the vendor materials first.",
+        function() SW.RecipeMarks.Refresh() end)
+
     -- Trainers
     heading("Trainers")
     checkbox("Read everything a trainer teaches", "deepTrainerScan",

@@ -48,4 +48,5 @@ UI\Dashboard.lua
 UI\Window.lua
 UI\Launcher.lua
 UI\Tooltip.lua
+UI\RecipeMarks.lua
 UI\Options.lua

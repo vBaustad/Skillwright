@@ -1,5 +1,9 @@
 # Skillwright for WoW: Forever
 
+## Unreleased
+
+- **A gold * in the profession window's recipe list shows what you can make once you buy the vendor materials.** Everything else the recipe needs (ore, cloth, herbs, leather) is already in your bags. If Blizzard's own [3] is beside it too, you can make it right now; if not, a vendor sells what is missing. It only marks recipes you know, only in your own profession window, and only counts your bags, not the bank. You can switch it off in Skillwright's settings under "Profession window".
+
 ## 1.0.0
 
 - **Out of beta, for the launch of WoW: Forever.** The note under the profession picker no longer says the game is in beta; apart from that, Skillwright is the same as 0.2.0-beta4. It has been checked against the game's newest client, build 1.60.1.70707, and nothing in it changes what Skillwright uses.
